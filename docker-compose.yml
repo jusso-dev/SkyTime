@@ -17,5 +17,94 @@ services:
       timeout: 5s
       retries: 10
 
+  backup-local:
+    build:
+      context: ./docker/postgres-backup
+    profiles:
+      - backup
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-skytime}
+      POSTGRES_USER: ${POSTGRES_USER:-skytime}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skytime}
+      BACKUP_DIR: /backups
+      BACKUP_PREFIX: ${BACKUP_PREFIX:-skytime}
+      LOCAL_RETENTION_DAYS: ${LOCAL_RETENTION_DAYS:-30}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-skytime/postgres}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      AWS_REQUEST_CHECKSUM_CALCULATION: ${AWS_REQUEST_CHECKSUM_CALCULATION:-when_required}
+      AWS_RESPONSE_CHECKSUM_VALIDATION: ${AWS_RESPONSE_CHECKSUM_VALIDATION:-when_required}
+    volumes:
+      - ./backups:/backups
+    command: ["/usr/local/bin/backup.sh"]
+
+  backup-s3:
+    build:
+      context: ./docker/postgres-backup
+    profiles:
+      - backup-s3
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-skytime}
+      POSTGRES_USER: ${POSTGRES_USER:-skytime}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skytime}
+      BACKUP_DIR: /backups
+      BACKUP_PREFIX: ${BACKUP_PREFIX:-skytime}
+      LOCAL_RETENTION_DAYS: ${LOCAL_RETENTION_DAYS:-30}
+      REQUIRE_S3: "true"
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_PREFIX: ${S3_PREFIX:-skytime/postgres}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      AWS_REQUEST_CHECKSUM_CALCULATION: ${AWS_REQUEST_CHECKSUM_CALCULATION:-when_required}
+      AWS_RESPONSE_CHECKSUM_VALIDATION: ${AWS_RESPONSE_CHECKSUM_VALIDATION:-when_required}
+    volumes:
+      - ./backups:/backups
+    command: ["/usr/local/bin/backup.sh"]
+
+  restore:
+    build:
+      context: ./docker/postgres-backup
+    profiles:
+      - restore
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-skytime}
+      POSTGRES_USER: ${POSTGRES_USER:-skytime}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skytime}
+      BACKUP_DIR: /backups
+      RESTORE_FILE: ${RESTORE_FILE:-}
+      CONFIRM_RESTORE: ${CONFIRM_RESTORE:-false}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      AWS_REQUEST_CHECKSUM_CALCULATION: ${AWS_REQUEST_CHECKSUM_CALCULATION:-when_required}
+      AWS_RESPONSE_CHECKSUM_VALIDATION: ${AWS_RESPONSE_CHECKSUM_VALIDATION:-when_required}
+    volumes:
+      - ./backups:/backups
+    command: ["/usr/local/bin/restore.sh"]
+
 volumes:
   skytime-postgres-data:

@@ -6,6 +6,50 @@
 
 Clean multi-tenant time tracking software with projects, task boards, browser reminders, polished CSV/PDF timesheet exports, and Postgres-backed workspace data.
 
+## Backups
+
+SkyTime includes Docker-based Postgres backups. Backups are written as custom-format `pg_dump` files so they can be restored with `pg_restore`.
+
+Create a local file-backed backup:
+
+```bash
+docker compose --profile backup run --rm backup-local
+```
+
+The dump and `.sha256` checksum are persisted under `./backups`, which is ignored by git except for the placeholder directory.
+
+For S3-compatible storage, copy the example env file and fill in your bucket, endpoint, and credentials:
+
+```bash
+cp .env.backup.example .env.backup
+```
+
+Then run:
+
+```bash
+docker compose --env-file .env.backup --profile backup-s3 run --rm backup-s3
+```
+
+`S3_ENDPOINT_URL` supports S3-compatible providers such as MinIO, Cloudflare R2, Backblaze B2, and Wasabi. Leave it empty for AWS S3. `S3_FORCE_PATH_STYLE=true` is useful for MinIO and many self-hosted S3-compatible services.
+
+Restore from a local backup file:
+
+```bash
+RESTORE_FILE=skytime-skytime-20260511T010000Z.dump \
+CONFIRM_RESTORE=true \
+docker compose --profile restore run --rm restore
+```
+
+Restore directly from S3-compatible storage:
+
+```bash
+RESTORE_FILE=s3://your-bucket/skytime/postgres/skytime-skytime-20260511T010000Z.dump \
+CONFIRM_RESTORE=true \
+docker compose --env-file .env.backup --profile restore run --rm restore
+```
+
+Restores replace objects in the configured Postgres database. Stop the app process before restoring into a live environment.
+
 ## Demo Screenshots
 
 Regenerate the seeded demo account, organization, projects, tasks, timesheets, and screenshots with:
