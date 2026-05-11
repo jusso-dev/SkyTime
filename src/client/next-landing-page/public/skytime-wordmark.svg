@@ -1,0 +1,11 @@
+<svg width="520" height="116" viewBox="0 0 520 116" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title">
+  <title id="title">SkyTime</title>
+  <defs>
+    <linearGradient id="word" x1="4" y1="18" x2="508" y2="104" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8"/>
+      <stop offset="0.42" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#0F4FD8"/>
+    </linearGradient>
+  </defs>
+  <text x="2" y="86" fill="url(#word)" font-family="Inter, Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="86" font-weight="800" letter-spacing="0">SkyTime</text>
+</svg>

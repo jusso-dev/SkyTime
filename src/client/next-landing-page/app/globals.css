@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --background: oklch(0.984 0.013 238);
+  --surface: oklch(0.958 0.024 236);
+  --raised: oklch(0.996 0.004 240);
+  --glass: color-mix(in oklch, var(--raised) 78%, transparent);
+  --border: oklch(0.882 0.042 244);
+  --text: oklch(0.205 0.044 258);
+  --muted: oklch(0.505 0.037 257);
+  --accent: oklch(0.54 0.205 263);
+  --accent-strong: oklch(0.46 0.205 263);
+  --accent-subtle: oklch(0.94 0.038 240);
+  --sky: oklch(0.75 0.14 230);
+  --sky-soft: oklch(0.965 0.034 232);
+  --success: oklch(0.68 0.17 145);
+  --success-soft: oklch(0.955 0.045 145);
+  --warning: oklch(0.76 0.16 78);
+  --warning-soft: oklch(0.96 0.055 88);
+  --error: oklch(0.62 0.22 27);
+  --error-soft: oklch(0.955 0.035 25);
+  --info: oklch(0.61 0.16 235);
+  --brand-gradient: linear-gradient(135deg, var(--accent), var(--sky));
+  --page-gradient: linear-gradient(135deg, var(--sky-soft) 0%, var(--raised) 46%, var(--accent-subtle) 100%);
+  --timer-gradient: linear-gradient(135deg, oklch(0.985 0.018 238), oklch(0.93 0.055 237));
+  --shadow: 0 18px 46px color-mix(in oklch, var(--accent) 13%, transparent);
+  --soft-shadow: 0 10px 28px color-mix(in oklch, var(--text) 7%, transparent);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.16 0.045 258);
+  --surface: oklch(0.22 0.045 255);
+  --raised: oklch(0.24 0.04 255);
+  --glass: color-mix(in oklch, var(--raised) 80%, transparent);
+  --border: oklch(0.34 0.045 252);
+  --text: oklch(0.91 0.02 248);
+  --muted: oklch(0.69 0.035 248);
+  --accent: oklch(0.61 0.2 263);
+  --accent-strong: oklch(0.75 0.14 230);
+  --accent-subtle: oklch(0.29 0.07 255);
+  --sky: oklch(0.75 0.14 230);
+  --sky-soft: oklch(0.20 0.055 250);
+  --success: oklch(0.76 0.16 155);
+  --success-soft: oklch(0.28 0.06 155);
+  --warning: oklch(0.82 0.15 83);
+  --warning-soft: oklch(0.30 0.055 82);
+  --error: oklch(0.72 0.19 25);
+  --error-soft: oklch(0.30 0.06 25);
+  --page-gradient: linear-gradient(135deg, oklch(0.14 0.045 258), oklch(0.20 0.05 255) 52%, oklch(0.17 0.055 240));
+  --timer-gradient: linear-gradient(135deg, oklch(0.24 0.06 255), oklch(0.28 0.08 245));
+  --shadow: 0 18px 46px color-mix(in oklch, var(--sky) 12%, transparent);
+  --soft-shadow: 0 10px 28px color-mix(in oklch, var(--background) 55%, transparent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--page-gradient);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-x: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+select {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+input:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+::selection {
+  background: var(--accent-subtle);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.brand-mark {
+  background: var(--brand-gradient);
+  box-shadow: 0 12px 26px color-mix(in oklch, var(--accent) 24%, transparent);
+}
+
+.sky-glass {
+  background: var(--glass);
+  backdrop-filter: blur(18px);
+}
+
+.sky-panel {
+  border: 1px solid var(--border);
+  background: var(--raised);
+  border-radius: 1rem;
+  box-shadow: var(--soft-shadow);
+}
+
+.timer-panel {
+  border: 1px solid color-mix(in oklch, var(--sky) 42%, var(--border));
+  background: var(--timer-gradient);
+  border-radius: 1.25rem;
+  box-shadow: var(--shadow);
+}
+
+.timer-panel[data-running="true"] {
+  box-shadow:
+    0 22px 56px color-mix(in oklch, var(--accent) 18%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--sky) 34%, transparent);
+}
+
+.content-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 360px;
+}
+
+.kanban-scroll {
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.kanban-scroll > * {
+  scroll-snap-align: start;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  * {
+    scroll-behavior: smooth;
+  }
+
+  .timer-panel[data-running="true"] {
+    animation: timer-glow 2.8s ease-out infinite;
+  }
+}
+
+@keyframes timer-glow {
+  0%, 100% {
+    box-shadow:
+      0 22px 56px color-mix(in oklch, var(--accent) 14%, transparent),
+      inset 0 0 0 1px color-mix(in oklch, var(--sky) 30%, transparent);
+  }
+
+  50% {
+    box-shadow:
+      0 26px 68px color-mix(in oklch, var(--sky) 22%, transparent),
+      inset 0 0 0 1px color-mix(in oklch, var(--sky) 45%, transparent);
+  }
+}
