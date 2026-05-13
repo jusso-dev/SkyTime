@@ -1,45 +1,60 @@
-import { NextResponse } from "next/server";
-import { badRequest, serverError } from "@/lib/api-response";
+import { recordAudit } from "@/lib/audit";
+import { withTenant } from "@/lib/route";
+import { optString, optUuid, readJson, requireString } from "@/lib/validation";
+import { ValidationError } from "@/lib/errors";
 import { query } from "@/lib/db";
-import { listProjects, projectFromRow, type ProjectRow } from "@/lib/workspace-repository";
-import { requireTenant } from "@/lib/tenant";
+import {
+  clientFromRow,
+  listProjects,
+  PROJECT_COLUMNS,
+  projectFromRow,
+  type ClientRow,
+  type ProjectRow,
+} from "@/lib/workspace-repository";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
-  try {
-    const { tenant, error } = await requireTenant(request);
-    if (error || !tenant) return error;
-    return NextResponse.json(await listProjects(tenant.organization.id));
-  } catch (error) {
-    return serverError(error);
-  }
-}
+export const GET = withTenant(async ({ tenant }) => {
+  return listProjects(tenant.organization.id);
+});
 
-export async function POST(request: Request) {
-  try {
-    const { tenant, error } = await requireTenant(request);
-    if (error || !tenant) return error;
+export const POST = withTenant(async ({ tenant, request }) => {
+  const body = await readJson(request);
+  const name = requireString(body.name, "Project name", 200);
+  const clientId = optUuid(body.clientId, "Client id");
+  const rate = body.rate === undefined ? 0 : Number(body.rate) || 0;
+  const color = optString(body.color, "Color", 80) || "oklch(0.56 0.13 155)";
+  const status = body.status === "Paused" ? "Paused" : "Active";
 
-    const body = await request.json();
-    if (!body.name?.trim()) return badRequest("Project name is required");
-
-    const result = await query<ProjectRow>(
-      `insert into projects (organization_id, name, client, rate, color, status)
-       values ($1, $2, $3, $4, $5, $6)
-       returning id, name, client, rate, color, status`,
-      [
-        tenant.organization.id,
-        body.name.trim(),
-        body.client?.trim() || "No client",
-        Number(body.rate) || 0,
-        body.color || "oklch(0.56 0.13 155)",
-        body.status === "Paused" ? "Paused" : "Active",
-      ],
+  let clientName = optString(body.client, "Client", 200);
+  if (clientId) {
+    const clientRow = await query<ClientRow>(
+      `select id, name, contact_name, contact_email, address, currency, default_rate, notes, archived_at
+       from clients where id = $1 and organization_id = $2`,
+      [clientId, tenant.organization.id],
     );
-
-    return NextResponse.json(projectFromRow(result.rows[0]), { status: 201 });
-  } catch (error) {
-    return serverError(error);
+    if (!clientRow.rows[0]) throw new ValidationError("Client not found");
+    clientName = clientFromRow(clientRow.rows[0]).name;
+  } else if (!clientName) {
+    clientName = "No client";
   }
-}
+
+  const result = await query<ProjectRow>(
+    `insert into projects (organization_id, name, client, client_id, rate, color, status)
+     values ($1, $2, $3, $4, $5, $6, $7)
+     returning ${PROJECT_COLUMNS}`,
+    [tenant.organization.id, name, clientName, clientId, rate, color, status],
+  );
+
+  const project = projectFromRow(result.rows[0]);
+  await recordAudit({
+    tenant,
+    request,
+    action: "create",
+    entityType: "project",
+    entityId: project.id,
+    summary: `Created project ${project.name}`,
+    after: project,
+  });
+  return new Response(JSON.stringify(project), { status: 201, headers: { "content-type": "application/json" } });
+});

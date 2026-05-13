@@ -1,22 +1,13 @@
-import { NextResponse } from "next/server";
-import { serverError } from "@/lib/api-response";
 import { getWorkspace } from "@/lib/workspace-repository";
-import { requireTenant } from "@/lib/tenant";
+import { withTenant } from "@/lib/route";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
-  try {
-    const { tenant, error } = await requireTenant(request);
-    if (error || !tenant) return error;
-
-    const workspace = await getWorkspace(tenant.organization.id);
-    return NextResponse.json({
-      user: tenant.user,
-      organization: tenant.organization,
-      ...workspace,
-    });
-  } catch (error) {
-    return serverError(error);
-  }
-}
+export const GET = withTenant(async ({ tenant }) => {
+  const workspace = await getWorkspace(tenant.organization.id, tenant.user.id, tenant.user.email);
+  return {
+    user: tenant.user,
+    organization: tenant.organization,
+    ...workspace,
+  };
+});

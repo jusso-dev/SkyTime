@@ -38,7 +38,7 @@ export default async function Home() {
     return <SkyTimeWorkspace initialState={{ kind: "needs-org", user }} />;
   }
 
-  const workspace = await getWorkspace(organization.id);
+  const workspace = await getWorkspace(organization.id, user.id, user.email);
 
   return (
     <SkyTimeWorkspace

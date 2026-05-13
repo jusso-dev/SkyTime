@@ -13,17 +13,23 @@ import {
   ArrowDownToLine,
   Bell,
   BriefcaseBusiness,
+  Bug,
+  Building2,
   CalendarRange,
   Check,
+  CheckCircle2,
   ChevronDown,
   Circle,
+  ClipboardCheck,
   Clock3,
   Copy,
   Edit3,
   FileText,
   FolderPlus,
+  History,
   KeyRound,
   LayoutDashboard,
+  Lock,
   Moon,
   Pause,
   Play,
@@ -34,10 +40,23 @@ import {
   Sun,
   TimerReset,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { BoardStatus, BoardTask, OrganizationInvite, Project, ReminderSettings, TimeEntry, WorkspacePayload } from "@/lib/workspace-types";
+import type {
+  AuditLogEntry,
+  BoardStatus,
+  BoardTask,
+  Client,
+  ErrorLogEntry,
+  OrganizationInvite,
+  Project,
+  ReminderSettings,
+  TimeEntry,
+  TimesheetPeriod,
+  WorkspacePayload,
+} from "@/lib/workspace-types";
 
 type TimerState = {
   running: boolean;
@@ -62,7 +81,18 @@ type ManualEntryForm = {
 type NewProjectForm = {
   name: string;
   client: string;
+  clientId: string;
   rate: string;
+};
+
+type NewClientForm = {
+  name: string;
+  contactName: string;
+  contactEmail: string;
+  address: string;
+  currency: string;
+  defaultRate: string;
+  notes: string;
 };
 
 type NewTaskForm = {
@@ -177,6 +207,21 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
   const [projects, setProjects] = useState<Project[]>(initialWorkspace?.projects ?? []);
   const [entries, setEntries] = useState<TimeEntry[]>(initialWorkspace?.entries ?? []);
   const [tasks, setTasks] = useState<BoardTask[]>(initialWorkspace?.tasks ?? []);
+  const [clients, setClients] = useState<Client[]>(initialWorkspace?.clients ?? []);
+  const [currentPeriod, setCurrentPeriod] = useState<TimesheetPeriod | null>(initialWorkspace?.currentPeriod ?? null);
+  const [periods, setPeriods] = useState<TimesheetPeriod[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
+  const [errorLog, setErrorLog] = useState<ErrorLogEntry[]>([]);
+  const [submitNote, setSubmitNote] = useState("");
+  const [newClient, setNewClient] = useState<NewClientForm>({
+    name: "",
+    contactName: "",
+    contactEmail: "",
+    address: "",
+    currency: "AUD",
+    defaultRate: "0",
+    notes: "",
+  });
   const [timer, setTimer] = useStoredState<TimerState>("skytime-timer", initialTimer);
   const [reminders, setReminders] = useState<ReminderSettings>(initialWorkspace?.settings.reminders ?? { enabled: false, cadenceMinutes: 60 });
   const [fyStartMonth, setFyStartMonth] = useState(initialWorkspace?.settings.fyStartMonth ?? 7);
@@ -190,7 +235,7 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [isAuthPending, startAuthTransition] = useTransition();
-  const [newProject, setNewProject] = useState({ name: "", client: "", rate: "120" });
+  const [newProject, setNewProject] = useState<NewProjectForm>({ name: "", client: "", clientId: "", rate: "120" });
   const [manualEntry, setManualEntry] = useState({
     projectId: "",
     task: "",
@@ -233,6 +278,15 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     if (activeView === "settings") {
       loadInvites();
     }
+    if (activeView === "approvals") {
+      loadPeriods();
+    }
+    if (activeView === "audit") {
+      loadAuditLog();
+    }
+    if (activeView === "errors") {
+      loadErrorLog();
+    }
   }, [activeView]);
 
   useEffect(() => {
@@ -269,6 +323,8 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       setProjects(data.projects);
       setEntries(data.entries);
       setTasks(data.tasks);
+      setClients(data.clients);
+      setCurrentPeriod(data.currentPeriod);
       setReminders(data.settings.reminders);
       setFyStartMonth(data.settings.fyStartMonth);
 
@@ -588,22 +644,155 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       const project = await api<Project>("/api/projects", {
         method: "POST",
         body: JSON.stringify({
-      name: newProject.name.trim(),
-      client: newProject.client.trim() || "No client",
-      rate: Number(newProject.rate) || 0,
-      color: projectColors[projects.length % projectColors.length],
-      status: "Active",
+          name: newProject.name.trim(),
+          clientId: newProject.clientId || undefined,
+          client: newProject.client.trim() || undefined,
+          rate: Number(newProject.rate) || 0,
+          color: projectColors[projects.length % projectColors.length],
+          status: "Active",
         }),
       });
 
-    setProjects((current) => [project, ...current]);
-    setTimer((current) => ({ ...current, projectId: project.id }));
-    setManualEntry((current) => ({ ...current, projectId: project.id }));
+      setProjects((current) => [project, ...current]);
+      setTimer((current) => ({ ...current, projectId: project.id }));
+      setManualEntry((current) => ({ ...current, projectId: project.id }));
       setTaskForm((current) => ({ ...current, projectId: project.id }));
-    setNewProject({ name: "", client: "", rate: "120" });
-    showToast("Project created", "success");
+      setNewProject({ name: "", client: "", clientId: "", rate: "120" });
+      showToast("Project created", "success");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Project could not be created", "error");
+    }
+  }
+
+  async function addClient() {
+    if (!newClient.name.trim()) {
+      showToast("Client name is required", "error");
+      return;
+    }
+    try {
+      const client = await api<Client>("/api/clients", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newClient.name.trim(),
+          contactName: newClient.contactName.trim(),
+          contactEmail: newClient.contactEmail.trim(),
+          address: newClient.address.trim(),
+          currency: newClient.currency.trim().toUpperCase() || "AUD",
+          defaultRate: Number(newClient.defaultRate) || 0,
+          notes: newClient.notes.trim(),
+        }),
+      });
+      setClients((current) => [client, ...current.filter((item) => item.id !== client.id)]);
+      setNewClient({ name: "", contactName: "", contactEmail: "", address: "", currency: "AUD", defaultRate: "0", notes: "" });
+      showToast("Client created", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Client could not be created", "error");
+    }
+  }
+
+  async function archiveClient(id: string) {
+    const client = clients.find((item) => item.id === id);
+    askConfirm({
+      title: "Archive client?",
+      message: client
+        ? `${client.name} will be hidden from project creation. Existing projects keep the reference.`
+        : "This client will be archived.",
+      actionLabel: "Archive client",
+      onConfirm: async () => {
+        try {
+          await api(`/api/clients/${id}`, { method: "DELETE" });
+          setClients((current) =>
+            current.map((item) => (item.id === id ? { ...item, archivedAt: new Date().toISOString() } : item)),
+          );
+          showToast("Client archived", "success");
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : "Client could not be archived", "error");
+        }
+      },
+    });
+  }
+
+  async function loadPeriods() {
+    if (authState.kind !== "workspace") return;
+    const scope = authState.data.organization.role === "admin" ? "all" : "own";
+    try {
+      const data = await api<TimesheetPeriod[]>(`/api/timesheets?scope=${scope}`);
+      setPeriods(data);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not load timesheets", "error");
+    }
+  }
+
+  async function submitCurrentPeriod() {
+    if (!currentPeriod) return;
+    if (currentPeriod.status === "approved") {
+      showToast("This week is already approved", "info");
+      return;
+    }
+    try {
+      const updated = await api<TimesheetPeriod>(`/api/timesheets/${currentPeriod.id}`, {
+        method: "POST",
+        body: JSON.stringify({ action: "submit", note: submitNote }),
+      });
+      setCurrentPeriod(updated);
+      setPeriods((current) => upsertPeriod(current, updated));
+      setSubmitNote("");
+      showToast("Timesheet submitted for review", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not submit timesheet", "error");
+    }
+  }
+
+  async function reviewPeriod(id: string, action: "approve" | "reject" | "reopen", note = "") {
+    try {
+      const updated = await api<TimesheetPeriod>(`/api/timesheets/${id}`, {
+        method: "POST",
+        body: JSON.stringify({ action, note }),
+      });
+      setPeriods((current) => upsertPeriod(current, updated));
+      if (currentPeriod && currentPeriod.id === id) setCurrentPeriod(updated);
+      // Approved/rejected/reopened affects entry locks; refresh entries.
+      await loadEntries();
+      showToast(
+        action === "approve"
+          ? "Timesheet approved"
+          : action === "reject"
+          ? "Timesheet rejected"
+          : "Timesheet reopened",
+        action === "reject" ? "info" : "success",
+      );
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not review timesheet", "error");
+    }
+  }
+
+  async function loadEntries() {
+    try {
+      const data = await api<TimeEntry[]>("/api/time-entries");
+      setEntries(data);
+    } catch (error) {
+      // Non-fatal — leave existing entries in place.
+      console.warn("Could not refresh time entries", error);
+    }
+  }
+
+  async function loadAuditLog() {
+    if (authState.kind !== "workspace" || authState.data.organization.role !== "admin") return;
+    try {
+      const data = await api<AuditLogEntry[]>("/api/audit-log?limit=100");
+      setAuditLog(data);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not load audit log", "error");
+    }
+  }
+
+  async function loadErrorLog() {
+    if (authState.kind !== "workspace" || authState.data.organization.role !== "admin") return;
+    try {
+      const data = await api<ErrorLogEntry[]>("/api/error-log?limit=100");
+      setErrorLog(data);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not load error log", "error");
     }
   }
 
@@ -628,7 +817,7 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     showToast("Manual entry added", "success");
   }
 
-  async function createEntry(payload: Omit<TimeEntry, "id">) {
+  async function createEntry(payload: Omit<TimeEntry, "id" | "userId" | "locked">) {
     try {
       const entry = await api<TimeEntry>("/api/time-entries", {
         method: "POST",
@@ -805,13 +994,23 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     setConfirmState(confirm);
   }
 
+  const isAdmin = authState.kind === "workspace" && authState.data.organization.role === "admin";
   const navItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "clients", label: "Clients", icon: Building2 },
     { id: "projects", label: "Projects", icon: BriefcaseBusiness },
     { id: "board", label: "Board", icon: SquareKanban },
     { id: "timesheets", label: "Timesheets", icon: FileText },
+    { id: "approvals", label: "Approvals", icon: ClipboardCheck },
+    ...(isAdmin
+      ? [
+          { id: "audit", label: "Audit log", icon: History },
+          { id: "errors", label: "Error log", icon: Bug },
+        ]
+      : []),
     { id: "settings", label: "Settings", icon: Settings2 },
   ];
+  const mobileNavItems = navItems.filter((item) => ["dashboard", "projects", "timesheets", "approvals", "settings"].includes(item.id));
 
   if (authState.kind === "signed-out") {
     return (
@@ -948,6 +1147,7 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
 
           {activeView === "projects" && (
             <ProjectsView
+              clients={clients}
               entries={entries}
               newProject={newProject}
               projects={projects}
@@ -956,6 +1156,40 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
               deleteProject={deleteProject}
               updateProject={updateProject}
             />
+          )}
+
+          {activeView === "clients" && (
+            <ClientsView
+              clients={clients}
+              projects={projects}
+              entries={entries}
+              newClient={newClient}
+              setNewClient={setNewClient}
+              addClient={addClient}
+              archiveClient={archiveClient}
+            />
+          )}
+
+          {activeView === "approvals" && (
+            <ApprovalsView
+              isAdmin={authState.data.organization.role === "admin"}
+              currentPeriod={currentPeriod}
+              periods={periods}
+              submitNote={submitNote}
+              setSubmitNote={setSubmitNote}
+              currentUserId={authState.data.user.id}
+              submitCurrentPeriod={submitCurrentPeriod}
+              reviewPeriod={reviewPeriod}
+              reload={loadPeriods}
+            />
+          )}
+
+          {activeView === "audit" && authState.data.organization.role === "admin" && (
+            <AuditLogView entries={auditLog} reload={loadAuditLog} />
+          )}
+
+          {activeView === "errors" && authState.data.organization.role === "admin" && (
+            <ErrorLogView entries={errorLog} reload={loadErrorLog} />
           )}
 
           {activeView === "board" && (
@@ -1016,7 +1250,7 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
         </div>
       </main>
 
-      <MobileBottomNav activeView={activeView} items={navItems} onChange={setActiveView} />
+      <MobileBottomNav activeView={activeView} items={mobileNavItems} onChange={setActiveView} />
       <ToastStack toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
       <ConfirmDialog confirm={confirmState} onClose={() => setConfirmState(null)} />
     </div>
@@ -1592,6 +1826,7 @@ function DashboardView({
 
 function ProjectsView({
   addProject,
+  clients,
   entries,
   newProject,
   projects,
@@ -1600,6 +1835,7 @@ function ProjectsView({
   updateProject,
 }: {
   addProject: () => void;
+  clients: Client[];
   entries: TimeEntry[];
   newProject: NewProjectForm;
   projects: Project[];
@@ -1607,6 +1843,7 @@ function ProjectsView({
   deleteProject: (id: string) => void;
   updateProject: (id: string, patch: Partial<Project>) => void;
 }) {
+  const activeClients = clients.filter((client) => !client.archivedAt);
   return (
     <div className="grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
       <section className="sky-panel p-4 sm:p-5">
@@ -1619,7 +1856,37 @@ function ProjectsView({
             <Input value={newProject.name} onChange={(event) => setNewProject((current) => ({ ...current, name: event.target.value }))} />
           </Field>
           <Field label="Client">
-            <Input value={newProject.client} onChange={(event) => setNewProject((current) => ({ ...current, client: event.target.value }))} />
+            {activeClients.length > 0 ? (
+              <select
+                value={newProject.clientId}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  const match = activeClients.find((client) => client.id === id);
+                  setNewProject((current) => ({
+                    ...current,
+                    clientId: id,
+                    client: match?.name ?? current.client,
+                    rate: match && match.defaultRate > 0 ? String(match.defaultRate) : current.rate,
+                  }));
+                }}
+                className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--raised)] px-3 text-sm text-[var(--text)] focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]"
+              >
+                <option value="">No client</option>
+                {activeClients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                value={newProject.client}
+                onChange={(event) =>
+                  setNewProject((current) => ({ ...current, client: event.target.value, clientId: "" }))
+                }
+                placeholder="Free-form client name"
+              />
+            )}
           </Field>
           <Field label="Hourly rate">
             <Input inputMode="decimal" value={newProject.rate} onChange={(event) => setNewProject((current) => ({ ...current, rate: event.target.value }))} />
@@ -2280,7 +2547,12 @@ function EntryTable({ entries, onDelete, projects }: { entries: TimeEntry[]; onD
                 </div>
               </div>
               {entry.notes && <p className="mt-3 text-sm text-[var(--muted)]">{entry.notes}</p>}
-              {onDelete && (
+              {entry.locked && (
+                <p className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)]">
+                  <Lock className="size-3.5" aria-hidden /> Locked by approved week
+                </p>
+              )}
+              {onDelete && !entry.locked && (
                 <button
                   type="button"
                   onClick={() => onDelete(entry.id)}
@@ -2337,14 +2609,20 @@ function EntryTable({ entries, onDelete, projects }: { entries: TimeEntry[]; onD
                   <td className="px-4 py-3">{entry.billable ? <Pill tone="success">Yes</Pill> : <Pill>No</Pill>}</td>
                   {onDelete && (
                     <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => onDelete(entry.id)}
-                        className="inline-flex items-center gap-1 rounded-xl border border-[var(--border)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]"
-                      >
-                        <Trash2 className="size-3.5" />
-                        Delete
-                      </button>
+                      {entry.locked ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)]">
+                          <Lock className="size-3.5" aria-hidden /> Locked
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onDelete(entry.id)}
+                          className="inline-flex items-center gap-1 rounded-xl border border-[var(--border)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--text)]"
+                        >
+                          <Trash2 className="size-3.5" />
+                          Delete
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -2832,4 +3110,440 @@ async function exportPdf(
 
   doc.save(`skytime-${toDateInput(range.start)}-${toDateInput(range.end)}.pdf`);
   showToast("PDF exported", "success");
+}
+
+function upsertPeriod(list: TimesheetPeriod[], next: TimesheetPeriod) {
+  const index = list.findIndex((item) => item.id === next.id);
+  if (index === -1) return [next, ...list];
+  const copy = list.slice();
+  copy[index] = next;
+  return copy;
+}
+
+function ClientsView({
+  addClient,
+  archiveClient,
+  clients,
+  entries,
+  newClient,
+  projects,
+  setNewClient,
+}: {
+  addClient: () => void;
+  archiveClient: (id: string) => void;
+  clients: Client[];
+  entries: TimeEntry[];
+  newClient: NewClientForm;
+  projects: Project[];
+  setNewClient: Dispatch<SetStateAction<NewClientForm>>;
+}) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
+      <section className="sky-panel p-4 sm:p-5">
+        <div className="flex items-center gap-2">
+          <Building2 className="size-5 text-[var(--accent-strong)]" aria-hidden />
+          <h2 className="text-lg font-semibold">Create client</h2>
+        </div>
+        <div className="mt-4 grid gap-3">
+          <Field label="Client name">
+            <Input value={newClient.name} onChange={(event) => setNewClient((current) => ({ ...current, name: event.target.value }))} />
+          </Field>
+          <Field label="Primary contact">
+            <Input value={newClient.contactName} onChange={(event) => setNewClient((current) => ({ ...current, contactName: event.target.value }))} />
+          </Field>
+          <Field label="Contact email">
+            <Input type="email" value={newClient.contactEmail} onChange={(event) => setNewClient((current) => ({ ...current, contactEmail: event.target.value }))} />
+          </Field>
+          <Field label="Address">
+            <Input value={newClient.address} onChange={(event) => setNewClient((current) => ({ ...current, address: event.target.value }))} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Currency">
+              <Input value={newClient.currency} onChange={(event) => setNewClient((current) => ({ ...current, currency: event.target.value }))} />
+            </Field>
+            <Field label="Default rate">
+              <Input inputMode="decimal" value={newClient.defaultRate} onChange={(event) => setNewClient((current) => ({ ...current, defaultRate: event.target.value }))} />
+            </Field>
+          </div>
+          <Field label="Notes">
+            <Input value={newClient.notes} onChange={(event) => setNewClient((current) => ({ ...current, notes: event.target.value }))} />
+          </Field>
+          <Button onClick={addClient}>
+            <Plus className="size-4" />
+            Create client
+          </Button>
+        </div>
+      </section>
+
+      <section>
+        <SectionHeader title="Clients" action={`${clients.filter((client) => !client.archivedAt).length} active`} />
+        <div className="grid gap-3 md:grid-cols-2">
+          {clients.length === 0 && (
+            <EmptyState
+              icon={Users}
+              title="No clients yet"
+              message="Create your first client to capture contact, address, currency, and default rate. Projects can then point at the client by reference."
+            />
+          )}
+          {clients.map((client) => {
+            const clientProjects = projects.filter((project) => project.clientId === client.id || project.client === client.name);
+            const clientMs = entries
+              .filter((entry) => clientProjects.some((project) => project.id === entry.projectId))
+              .reduce((sum, entry) => sum + entry.durationMs, 0);
+            return (
+              <article key={client.id} className={cn("sky-panel p-4", client.archivedAt && "opacity-60")}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold">{client.name}</h3>
+                    {client.contactName && <p className="mt-1 text-sm text-[var(--muted)] truncate">{client.contactName}</p>}
+                    {client.contactEmail && (
+                      <p className="text-sm text-[var(--muted)] truncate">{client.contactEmail}</p>
+                    )}
+                  </div>
+                  <Pill tone={client.archivedAt ? "warning" : "success"}>{client.archivedAt ? "Archived" : "Active"}</Pill>
+                </div>
+                {client.address && <p className="mt-3 text-sm text-[var(--muted)]">{client.address}</p>}
+                <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-[var(--muted)]">Default rate</dt>
+                    <dd className="mt-1 font-semibold tabular">
+                      {client.defaultRate > 0 ? `${formatCurrency(client.defaultRate)}/hr ${client.currency}` : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-[var(--muted)]">Tracked</dt>
+                    <dd className="mt-1 font-semibold tabular">{formatDuration(clientMs)}</dd>
+                  </div>
+                </dl>
+                {client.notes && <p className="mt-3 text-sm text-[var(--muted)]">{client.notes}</p>}
+                {!client.archivedAt && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button tone="neutral" onClick={() => archiveClient(client.id)}>
+                      <Trash2 className="size-4" />
+                      Archive
+                    </Button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ApprovalsView({
+  currentPeriod,
+  currentUserId,
+  isAdmin,
+  periods,
+  reload,
+  reviewPeriod,
+  setSubmitNote,
+  submitCurrentPeriod,
+  submitNote,
+}: {
+  currentPeriod: TimesheetPeriod | null;
+  currentUserId: string;
+  isAdmin: boolean;
+  periods: TimesheetPeriod[];
+  reload: () => void;
+  reviewPeriod: (id: string, action: "approve" | "reject" | "reopen", note?: string) => void;
+  setSubmitNote: Dispatch<SetStateAction<string>>;
+  submitCurrentPeriod: () => void;
+  submitNote: string;
+}) {
+  const myPeriods = periods.filter((period) => period.userId === currentUserId);
+  const reviewQueue = periods.filter((period) => period.status === "submitted");
+  const others = periods.filter((period) => period.userId !== currentUserId);
+
+  return (
+    <div className="grid gap-5">
+      <section className="sky-panel p-4 sm:p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">This week</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {currentPeriod
+                ? `${currentPeriod.periodStart} → ${currentPeriod.periodEnd}`
+                : "No active period."}
+            </p>
+          </div>
+          {currentPeriod && <PeriodStatusPill status={currentPeriod.status} />}
+        </div>
+        {currentPeriod && (
+          <dl className="mt-4 grid gap-3 sm:grid-cols-3">
+            <Stat label="Total tracked" value={formatDuration(currentPeriod.totalMs)} />
+            <Stat label="Status" value={currentPeriod.status} />
+            <Stat label="Submitted" value={currentPeriod.submittedAt ? formatDate(new Date(currentPeriod.submittedAt)) : "—"} />
+          </dl>
+        )}
+        {currentPeriod && currentPeriod.status !== "approved" && (
+          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+            <Field label="Note for reviewer (optional)">
+              <Input value={submitNote} onChange={(event) => setSubmitNote(event.target.value)} />
+            </Field>
+            <Button onClick={submitCurrentPeriod}>
+              <CheckCircle2 className="size-4" />
+              Submit for review
+            </Button>
+          </div>
+        )}
+        {currentPeriod && currentPeriod.note && (
+          <p className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
+            Reviewer note: {currentPeriod.note}
+          </p>
+        )}
+      </section>
+
+      {isAdmin && (
+        <section className="sky-panel p-4 sm:p-5">
+          <SectionHeader title="Awaiting your review" action={`${reviewQueue.length} pending`} />
+          {reviewQueue.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
+              No timesheets are waiting for approval right now.
+            </p>
+          ) : (
+            <div className="grid gap-3">
+              {reviewQueue.map((period) => (
+                <PeriodCard
+                  key={period.id}
+                  period={period}
+                  isAdmin
+                  onApprove={() => reviewPeriod(period.id, "approve")}
+                  onReject={() => reviewPeriod(period.id, "reject")}
+                  onReopen={() => reviewPeriod(period.id, "reopen")}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      <section>
+        <SectionHeader title="My timesheets" action={`${myPeriods.length} weeks`} />
+        {myPeriods.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
+            Your previous timesheet weeks will appear here once you submit one.
+          </p>
+        ) : (
+          <div className="grid gap-3">
+            {myPeriods.map((period) => (
+              <PeriodCard key={period.id} period={period} isAdmin={false} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {isAdmin && others.length > 0 && (
+        <section>
+          <SectionHeader title="Team history" action={`${others.length} weeks`} />
+          <div className="grid gap-3">
+            {others.map((period) => (
+              <PeriodCard
+                key={period.id}
+                period={period}
+                isAdmin
+                onApprove={period.status === "submitted" ? () => reviewPeriod(period.id, "approve") : undefined}
+                onReject={period.status === "submitted" ? () => reviewPeriod(period.id, "reject") : undefined}
+                onReopen={
+                  period.status === "approved" || period.status === "rejected"
+                    ? () => reviewPeriod(period.id, "reopen")
+                    : undefined
+                }
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <button
+        type="button"
+        onClick={reload}
+        className="justify-self-start rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--muted)] hover:text-[var(--text)]"
+      >
+        Refresh
+      </button>
+    </div>
+  );
+}
+
+function PeriodStatusPill({ status }: { status: TimesheetPeriod["status"] }) {
+  if (status === "approved") return <Pill tone="success">Approved</Pill>;
+  if (status === "submitted") return <Pill tone="accent">Submitted</Pill>;
+  if (status === "rejected") return <Pill tone="error">Rejected</Pill>;
+  return <Pill>Draft</Pill>;
+}
+
+function PeriodCard({
+  isAdmin,
+  onApprove,
+  onReject,
+  onReopen,
+  period,
+}: {
+  isAdmin: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
+  onReopen?: () => void;
+  period: TimesheetPeriod;
+}) {
+  return (
+    <article className="sky-panel p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+            {period.periodStart} → {period.periodEnd}
+          </p>
+          <p className="mt-1 font-semibold">{period.userEmail ?? period.userId}</p>
+          <p className="mt-1 text-sm tabular text-[var(--muted)]">
+            {formatDuration(period.totalMs)} tracked
+            {period.submittedAt ? ` · submitted ${formatDate(new Date(period.submittedAt))}` : ""}
+            {period.reviewedAt && period.reviewerEmail
+              ? ` · reviewed by ${period.reviewerEmail}`
+              : ""}
+          </p>
+          {period.note && (
+            <p className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2 text-sm text-[var(--muted)]">
+              {period.note}
+            </p>
+          )}
+        </div>
+        <PeriodStatusPill status={period.status} />
+      </div>
+      {isAdmin && (onApprove || onReject || onReopen) && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {onApprove && (
+            <Button onClick={onApprove}>
+              <CheckCircle2 className="size-4" /> Approve
+            </Button>
+          )}
+          {onReject && (
+            <Button tone="neutral" onClick={onReject}>
+              <X className="size-4" /> Reject
+            </Button>
+          )}
+          {onReopen && (
+            <Button tone="neutral" onClick={onReopen}>
+              <Edit3 className="size-4" /> Reopen
+            </Button>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</p>
+      <p className="mt-2 text-lg font-bold tabular">{value}</p>
+    </div>
+  );
+}
+
+function AuditLogView({ entries, reload }: { entries: AuditLogEntry[]; reload: () => void }) {
+  return (
+    <section className="sky-panel p-4 sm:p-5">
+      <SectionHeader title="Audit log" action={`${entries.length} recent events`} />
+      <div className="mb-3">
+        <button
+          type="button"
+          onClick={reload}
+          className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--muted)] hover:text-[var(--text)]"
+        >
+          Refresh
+        </button>
+      </div>
+      {entries.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
+          No audit events yet. Mutations on projects, time entries, clients, tasks, invites, and timesheets will appear here.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--raised)]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+              <thead className="bg-[var(--surface)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">When</th>
+                  <th className="px-4 py-3 font-semibold">Actor</th>
+                  <th className="px-4 py-3 font-semibold">Action</th>
+                  <th className="px-4 py-3 font-semibold">Entity</th>
+                  <th className="px-4 py-3 font-semibold">Summary</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr key={entry.id} className="border-t border-[var(--border)]">
+                    <td className="whitespace-nowrap px-4 py-3 tabular">{formatDate(new Date(entry.createdAt))}</td>
+                    <td className="px-4 py-3">{entry.userEmail ?? entry.userId ?? "system"}</td>
+                    <td className="px-4 py-3"><Pill>{entry.action}</Pill></td>
+                    <td className="px-4 py-3 text-[var(--muted)]">{entry.entityType}</td>
+                    <td className="px-4 py-3">{entry.summary}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ErrorLogView({ entries, reload }: { entries: ErrorLogEntry[]; reload: () => void }) {
+  return (
+    <section className="sky-panel p-4 sm:p-5">
+      <SectionHeader title="Error log" action={`${entries.length} recent events`} />
+      <div className="mb-3">
+        <button
+          type="button"
+          onClick={reload}
+          className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--muted)] hover:text-[var(--text)]"
+        >
+          Refresh
+        </button>
+      </div>
+      {entries.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
+          No captured errors. Unhandled API exceptions and validation failures will appear here for triage.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--raised)]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+              <thead className="bg-[var(--surface)] text-xs uppercase tracking-[0.08em] text-[var(--muted)]">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">When</th>
+                  <th className="px-4 py-3 font-semibold">Level</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 font-semibold">Endpoint</th>
+                  <th className="px-4 py-3 font-semibold">Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr key={entry.id} className="border-t border-[var(--border)]">
+                    <td className="whitespace-nowrap px-4 py-3 tabular">{formatDate(new Date(entry.createdAt))}</td>
+                    <td className="px-4 py-3">
+                      <Pill tone={entry.level === "error" ? "error" : entry.level === "warn" ? "warning" : "neutral"}>
+                        {entry.level}
+                      </Pill>
+                    </td>
+                    <td className="px-4 py-3 tabular">{entry.statusCode ?? "—"}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-[var(--muted)]">
+                      {entry.method ?? ""} {entry.path ?? ""}
+                    </td>
+                    <td className="px-4 py-3">{entry.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }

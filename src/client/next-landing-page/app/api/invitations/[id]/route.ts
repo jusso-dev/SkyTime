@@ -1,31 +1,29 @@
-import { NextResponse } from "next/server";
-import { notFound, serverError } from "@/lib/api-response";
+import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
-import { requireAdmin, requireTenant } from "@/lib/tenant";
+import { NotFoundError } from "@/lib/errors";
+import { withTenant } from "@/lib/route";
+import { requireUuid } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
-type RouteContext = {
-  params: Promise<{ id: string }>;
-};
+type Params = { id: string };
 
-export async function DELETE(_request: Request, context: RouteContext) {
-  try {
-    const { tenant, error } = await requireTenant(_request);
-    if (error || !tenant) return error;
-
-    const adminError = requireAdmin(tenant);
-    if (adminError) return adminError;
-
-    const { id } = await context.params;
-    const result = await query(
-      "update organization_invites set status = 'revoked' where id = $1 and organization_id = $2 returning id",
-      [id, tenant.organization.id],
-    );
-    if (!result.rows[0]) return notFound("Invite not found");
-
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    return serverError(error);
-  }
-}
+export const DELETE = withTenant<Params>(async ({ tenant, request, params }) => {
+  const id = requireUuid(params.id, "Invite id");
+  const result = await query<{ id: string; email: string }>(
+    `update organization_invites set status = 'revoked'
+     where id = $1 and organization_id = $2
+     returning id, email`,
+    [id, tenant.organization.id],
+  );
+  if (!result.rows[0]) throw new NotFoundError("Invite not found");
+  await recordAudit({
+    tenant,
+    request,
+    action: "revoke",
+    entityType: "invite",
+    entityId: id,
+    summary: `Revoked invite for ${result.rows[0].email}`,
+  });
+  return { ok: true };
+}, { admin: true });
