@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import {
   DndContext,
   type DragEndEvent,
@@ -44,6 +44,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { loadGooglePlaces } from "@/lib/google-places";
 import type {
   AuditLogEntry,
   BoardStatus,
@@ -2665,6 +2666,60 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
+function AddressInput({
+  onChange,
+  placeholder,
+  value,
+}: {
+  onChange: (value: string) => void;
+  placeholder?: string;
+  value: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    const load = loadGooglePlaces();
+    if (!load) return;
+
+    let cancelled = false;
+    let listener: { remove?: () => void } | null = null;
+
+    load
+      .then((google) => {
+        if (cancelled || !inputRef.current) return;
+        const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
+          fields: ["formatted_address"],
+          types: ["address"],
+        });
+        listener = autocomplete.addListener("place_changed", () => {
+          const place = autocomplete.getPlace();
+          if (place.formatted_address) onChangeRef.current(place.formatted_address);
+        });
+      })
+      .catch(() => {
+        // Silently fall back to a plain text input.
+      });
+
+    return () => {
+      cancelled = true;
+      listener?.remove?.();
+    };
+  }, []);
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      autoComplete="off"
+      className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--raised)] px-3 text-base outline-none transition-colors placeholder:text-[color-mix(in_oklch,var(--muted)_68%,transparent)] hover:border-[color-mix(in_oklch,var(--sky)_58%,var(--border))] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent-subtle)] sm:text-sm"
+    />
+  );
+}
+
 function Select({ children, onChange, value }: { children: React.ReactNode; onChange: (value: string) => void; value: string }) {
   return (
     <span className="relative block">
@@ -3155,7 +3210,11 @@ function ClientsView({
             <Input type="email" value={newClient.contactEmail} onChange={(event) => setNewClient((current) => ({ ...current, contactEmail: event.target.value }))} />
           </Field>
           <Field label="Address">
-            <Input value={newClient.address} onChange={(event) => setNewClient((current) => ({ ...current, address: event.target.value }))} />
+            <AddressInput
+              value={newClient.address}
+              onChange={(address) => setNewClient((current) => ({ ...current, address }))}
+              placeholder="Start typing to search…"
+            />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Currency">

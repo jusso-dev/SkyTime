@@ -44,6 +44,17 @@ npm run dev
 The app boots at <http://localhost:3000>. Sign up creates a user; the first
 sign-in prompts for an organization name.
 
+## Optional integrations
+
+- **Google Places address autocomplete.** Set
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to a Google Maps JavaScript API key with
+  the Places library enabled. When set, the client address field offers
+  type-ahead address suggestions. When unset, the field behaves as a plain
+  text input.
+- **Email delivery.** Configure `RESEND_API_KEY` and `RESEND_FROM` for invite
+  emails. Invites are still created without these — only the email send is
+  skipped.
+
 ## Backups
 
 SkyTime includes Docker-based Postgres backups. Backups are written as custom-format `pg_dump` files so they can be restored with `pg_restore`.
