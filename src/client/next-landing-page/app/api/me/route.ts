@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { serverError } from "@/lib/api-response";
+import { captureError, errorResponse, HttpError } from "@/lib/errors";
 import { getSessionUser } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -22,6 +22,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ user, organization: membership.rows[0] ?? null });
   } catch (error) {
-    return serverError(error);
+    await captureError(error, {
+      request,
+      status: error instanceof HttpError ? error.status : 500,
+    });
+    return errorResponse(error);
   }
 }

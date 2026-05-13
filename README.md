@@ -4,7 +4,56 @@
 
 # SkyTime
 
-Clean multi-tenant time tracking software with projects, task boards, browser reminders, polished CSV/PDF timesheet exports, and Postgres-backed workspace data.
+Clean multi-tenant time tracking software with projects, clients, task boards,
+browser reminders, weekly timesheet approvals, polished CSV/PDF timesheet
+exports, full audit logging, captured server errors, and Postgres-backed
+workspace data.
+
+## Features
+
+- **Time tracking.** Start/stop timer, manual entries, billable flag, project
+  rates, weekly/monthly/financial year/custom period filters, CSV and PDF
+  export with configurable GST.
+- **Clients & projects.** Clients as first-class entities (contact, address,
+  currency, default rate). Projects reference a client so renames flow through
+  to historical entries.
+- **Approvals.** Weekly timesheet periods per user with `draft → submitted →
+  approved/rejected` lifecycle. Entries inside an approved week are locked
+  until an admin reopens the period.
+- **Audit log.** Every mutating action on tenant data is recorded
+  (`who, what, when, before, after`) and visible to admins in-app and via
+  `/api/audit-log`.
+- **Error log.** Server-side exceptions are captured to `error_log` and
+  surfaced to admins for incident triage.
+- **Multi-tenant.** Organizations with admin/member roles, invite flow with
+  email delivery via Resend, two-factor authentication via better-auth.
+- **API.** Documented JSON API under `/api/*` (current v1 surface) — see
+  [`docs/api.md`](docs/api.md). `/api/v1/health` provides a liveness probe.
+
+## Local development
+
+```bash
+docker compose up -d
+cd src/client/next-landing-page
+npm install
+npm run auth:migrate   # better-auth tables
+npm run db:migrate     # SkyTime schema
+npm run dev
+```
+
+The app boots at <http://localhost:3000>. Sign up creates a user; the first
+sign-in prompts for an organization name.
+
+## Optional integrations
+
+- **Google Places address autocomplete.** Set
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to a Google Maps JavaScript API key with
+  the Places library enabled. When set, the client address field offers
+  type-ahead address suggestions. When unset, the field behaves as a plain
+  text input.
+- **Email delivery.** Configure `RESEND_API_KEY` and `RESEND_FROM` for invite
+  emails. Invites are still created without these — only the email send is
+  skipped.
 
 ## Backups
 

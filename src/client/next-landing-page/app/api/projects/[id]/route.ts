@@ -1,63 +1,98 @@
-import { NextResponse } from "next/server";
-import { badRequest, notFound, serverError } from "@/lib/api-response";
+import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
-import { projectFromRow, type ProjectRow } from "@/lib/workspace-repository";
-import { requireTenant } from "@/lib/tenant";
+import { NotFoundError, ValidationError } from "@/lib/errors";
+import { withTenant } from "@/lib/route";
+import { optUuid, readJson, requireUuid } from "@/lib/validation";
+import {
+  clientFromRow,
+  PROJECT_COLUMNS,
+  projectFromRow,
+  type ClientRow,
+  type ProjectRow,
+} from "@/lib/workspace-repository";
 
 export const runtime = "nodejs";
 
-type RouteContext = {
-  params: Promise<{ id: string }>;
-};
+type Params = { id: string };
 
-export async function PATCH(request: Request, context: RouteContext) {
-  try {
-    const { tenant, error } = await requireTenant(request);
-    if (error || !tenant) return error;
+export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
+  const id = requireUuid(params.id, "Project id");
+  const body = await readJson(request);
 
-    const { id } = await context.params;
-    const body = await request.json();
-    if (body.name !== undefined && !body.name.trim()) return badRequest("Project name is required");
-
-    const current = await query<ProjectRow>(
-      "select id, name, client, rate, color, status from projects where id = $1 and organization_id = $2",
-      [id, tenant.organization.id],
-    );
-    if (!current.rows[0]) return notFound("Project not found");
-
-    const existing = current.rows[0];
-    const result = await query<ProjectRow>(
-      `update projects
-       set name = $2, client = $3, rate = $4, color = $5, status = $6, updated_at = now()
-       where id = $1 and organization_id = $7
-       returning id, name, client, rate, color, status`,
-      [
-        id,
-        body.name?.trim() ?? existing.name,
-        body.client?.trim() ?? existing.client,
-        body.rate === undefined ? existing.rate : Number(body.rate) || 0,
-        body.color ?? existing.color,
-        body.status === "Paused" || body.status === "Active" ? body.status : existing.status,
-        tenant.organization.id,
-      ],
-    );
-
-    return NextResponse.json(projectFromRow(result.rows[0]));
-  } catch (error) {
-    return serverError(error);
+  if (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) {
+    throw new ValidationError("Project name is required");
   }
-}
 
-export async function DELETE(_request: Request, context: RouteContext) {
-  try {
-    const { tenant, error } = await requireTenant(_request);
-    if (error || !tenant) return error;
+  const current = await query<ProjectRow>(
+    `select ${PROJECT_COLUMNS} from projects where id = $1 and organization_id = $2`,
+    [id, tenant.organization.id],
+  );
+  if (!current.rows[0]) throw new NotFoundError("Project not found");
+  const existing = current.rows[0];
+  const before = projectFromRow(existing);
 
-    const { id } = await context.params;
-    const result = await query("delete from projects where id = $1 and organization_id = $2 returning id", [id, tenant.organization.id]);
-    if (!result.rows[0]) return notFound("Project not found");
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    return serverError(error);
+  let clientName = body.client === undefined ? existing.client : String(body.client).trim();
+  let clientId: string | null = existing.client_id;
+  if (body.clientId !== undefined) {
+    clientId = optUuid(body.clientId, "Client id");
+    if (clientId) {
+      const clientRow = await query<ClientRow>(
+        `select id, name, contact_name, contact_email, address, currency, default_rate, notes, archived_at
+         from clients where id = $1 and organization_id = $2`,
+        [clientId, tenant.organization.id],
+      );
+      if (!clientRow.rows[0]) throw new ValidationError("Client not found");
+      clientName = clientFromRow(clientRow.rows[0]).name;
+    }
   }
-}
+
+  const result = await query<ProjectRow>(
+    `update projects
+     set name = $2, client = $3, client_id = $4, rate = $5, color = $6, status = $7, updated_at = now()
+     where id = $1 and organization_id = $8
+     returning ${PROJECT_COLUMNS}`,
+    [
+      id,
+      typeof body.name === "string" && body.name.trim() ? body.name.trim() : existing.name,
+      clientName || "No client",
+      clientId,
+      body.rate === undefined ? existing.rate : Number(body.rate) || 0,
+      typeof body.color === "string" && body.color ? body.color : existing.color,
+      body.status === "Paused" || body.status === "Active" ? body.status : existing.status,
+      tenant.organization.id,
+    ],
+  );
+
+  const updated = projectFromRow(result.rows[0]);
+  await recordAudit({
+    tenant,
+    request,
+    action: "update",
+    entityType: "project",
+    entityId: updated.id,
+    summary: `Updated project ${updated.name}`,
+    before,
+    after: updated,
+  });
+  return updated;
+});
+
+export const DELETE = withTenant<Params>(async ({ tenant, request, params }) => {
+  const id = requireUuid(params.id, "Project id");
+  const result = await query<ProjectRow>(
+    `delete from projects where id = $1 and organization_id = $2 returning ${PROJECT_COLUMNS}`,
+    [id, tenant.organization.id],
+  );
+  if (!result.rows[0]) throw new NotFoundError("Project not found");
+  const removed = projectFromRow(result.rows[0]);
+  await recordAudit({
+    tenant,
+    request,
+    action: "delete",
+    entityType: "project",
+    entityId: removed.id,
+    summary: `Deleted project ${removed.name}`,
+    before: removed,
+  });
+  return { ok: true };
+});
