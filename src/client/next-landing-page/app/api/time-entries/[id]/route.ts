@@ -1,3 +1,4 @@
+import { requireProject, entryTags, duration, optUuid } from "@/lib/validation";
 import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -30,44 +31,76 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   const body = await readJson(request);
   const existing = await loadEntry(tenant.organization.id, id);
 
-  if (existing.user_id && existing.user_id !== tenant.user.id && tenant.organization.role !== "admin") {
+  if (
+    existing.user_id &&
+    existing.user_id !== tenant.user.id &&
+    tenant.organization.role !== "admin"
+  ) {
     throw new ConflictError("Only admins can edit other people's entries");
   }
 
   const lockUserId = existing.user_id;
-  if (await isEntryLocked(tenant.organization.id, lockUserId, existing.started_at)) {
+  if (
+    await isEntryLocked(tenant.organization.id, lockUserId, existing.started_at)
+  ) {
     throw new ConflictError("Entry is part of an approved week and is locked");
   }
 
-  if (body.task !== undefined && (typeof body.task !== "string" || !body.task.trim())) {
+  if (
+    body.task !== undefined &&
+    (typeof body.task !== "string" || !body.task.trim())
+  ) {
     throw new ValidationError("Task is required");
   }
 
+  await requireProject(
+    tenant.organization.id,
+    body.projectId === undefined
+      ? existing.project_id
+      : requireUuid(body.projectId, "Project"),
+  );
   const before = entryFromRow(existing);
   const newStartedAt =
-    body.startedAt === undefined ? existing.started_at : new Date(String(body.startedAt));
+    body.startedAt === undefined
+      ? existing.started_at
+      : new Date(String(body.startedAt));
   if (newStartedAt instanceof Date && Number.isNaN(newStartedAt.getTime())) {
     throw new ValidationError("Start time is invalid");
   }
-  if (body.startedAt !== undefined && lockUserId &&
-      await isEntryLocked(tenant.organization.id, lockUserId, newStartedAt as Date)) {
+  if (
+    body.startedAt !== undefined &&
+    lockUserId &&
+    (await isEntryLocked(
+      tenant.organization.id,
+      lockUserId,
+      newStartedAt as Date,
+    ))
+  ) {
     throw new ConflictError("Cannot move entry into an approved week");
   }
 
   const result = await query<TimeEntryRow>(
     `update time_entries
-     set project_id = $2, task = $3, notes = $4, started_at = $5, duration_ms = $6, billable = $7, updated_at = now()
+     set project_id = $2, task = $3, notes = $4, started_at = $5, duration_ms = $6, billable = $7, tags = $9, task_id = $10, updated_at = now()
      where id = $1 and organization_id = $8
      returning ${TIME_ENTRY_COLUMNS}`,
     [
       id,
       body.projectId ?? existing.project_id,
-      typeof body.task === "string" && body.task.trim() ? body.task.trim() : existing.task,
+      typeof body.task === "string" && body.task.trim()
+        ? body.task.trim()
+        : existing.task,
       typeof body.notes === "string" ? body.notes.trim() : existing.notes,
       newStartedAt,
-      body.durationMs === undefined ? existing.duration_ms : Math.max(1, Math.round(Number(body.durationMs))),
+      body.durationMs === undefined
+        ? existing.duration_ms
+        : duration(body.durationMs),
       optBoolean(body.billable, "Billable") ?? existing.billable,
       tenant.organization.id,
+      body.tags === undefined ? existing.tags : entryTags(body.tags),
+      body.taskId === undefined
+        ? existing.task_id
+        : optUuid(body.taskId, "Task id"),
     ],
   );
 
@@ -77,6 +110,11 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
       typeof newStartedAt === "string" ? new Date(newStartedAt) : newStartedAt,
     );
     await refreshPeriodTotals(tenant.organization.id, lockUserId, window.start);
+    await refreshPeriodTotals(
+      tenant.organization.id,
+      lockUserId,
+      currentPeriodWindow(existing.started_at).start,
+    );
   }
 
   await recordAudit({
@@ -93,37 +131,55 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   return updated;
 });
 
-export const DELETE = withTenant<Params>(async ({ tenant, request, params }) => {
-  const id = requireUuid(params.id, "Entry id");
-  const existing = await loadEntry(tenant.organization.id, id);
-  if (existing.user_id && existing.user_id !== tenant.user.id && tenant.organization.role !== "admin") {
-    throw new ConflictError("Only admins can delete other people's entries");
-  }
-  if (await isEntryLocked(tenant.organization.id, existing.user_id, existing.started_at)) {
-    throw new ConflictError("Entry is part of an approved week and is locked");
-  }
+export const DELETE = withTenant<Params>(
+  async ({ tenant, request, params }) => {
+    const id = requireUuid(params.id, "Entry id");
+    const existing = await loadEntry(tenant.organization.id, id);
+    if (
+      existing.user_id &&
+      existing.user_id !== tenant.user.id &&
+      tenant.organization.role !== "admin"
+    ) {
+      throw new ConflictError("Only admins can delete other people's entries");
+    }
+    if (
+      await isEntryLocked(
+        tenant.organization.id,
+        existing.user_id,
+        existing.started_at,
+      )
+    ) {
+      throw new ConflictError(
+        "Entry is part of an approved week and is locked",
+      );
+    }
 
-  const result = await query<TimeEntryRow>(
-    `delete from time_entries where id = $1 and organization_id = $2 returning ${TIME_ENTRY_COLUMNS}`,
-    [id, tenant.organization.id],
-  );
-  if (!result.rows[0]) throw new NotFoundError("Entry not found");
-  const removed = entryFromRow(result.rows[0]);
+    const result = await query<TimeEntryRow>(
+      `delete from time_entries where id = $1 and organization_id = $2 returning ${TIME_ENTRY_COLUMNS}`,
+      [id, tenant.organization.id],
+    );
+    if (!result.rows[0]) throw new NotFoundError("Entry not found");
+    const removed = entryFromRow(result.rows[0]);
 
-  if (removed.userId) {
-    const window = currentPeriodWindow(new Date(removed.startedAt));
-    await refreshPeriodTotals(tenant.organization.id, removed.userId, window.start);
-  }
+    if (removed.userId) {
+      const window = currentPeriodWindow(new Date(removed.startedAt));
+      await refreshPeriodTotals(
+        tenant.organization.id,
+        removed.userId,
+        window.start,
+      );
+    }
 
-  await recordAudit({
-    tenant,
-    request,
-    action: "delete",
-    entityType: "time_entry",
-    entityId: removed.id,
-    summary: `Deleted entry ${removed.task}`,
-    before: removed,
-  });
+    await recordAudit({
+      tenant,
+      request,
+      action: "delete",
+      entityType: "time_entry",
+      entityId: removed.id,
+      summary: `Deleted entry ${removed.task}`,
+      before: removed,
+    });
 
-  return { ok: true };
-});
+    return { ok: true };
+  },
+);

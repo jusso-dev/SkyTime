@@ -1,8 +1,19 @@
+import { requireProject, entryTags, duration, optUuid } from "@/lib/validation";
 import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { withTenant } from "@/lib/route";
-import { optNumber, readJson, requireString, requireUuid } from "@/lib/validation";
-import { listTasks, TASK_COLUMNS, taskFromRow, type BoardTaskRow } from "@/lib/workspace-repository";
+import {
+  optNumber,
+  readJson,
+  requireString,
+  requireUuid,
+} from "@/lib/validation";
+import {
+  listTasks,
+  TASK_COLUMNS,
+  taskFromRow,
+  type BoardTaskRow,
+} from "@/lib/workspace-repository";
 
 export const runtime = "nodejs";
 
@@ -13,9 +24,12 @@ export const GET = withTenant(async ({ tenant }) => {
 export const POST = withTenant(async ({ tenant, request }) => {
   const body = await readJson(request);
   const projectId = requireUuid(body.projectId, "Project");
+  await requireProject(tenant.organization.id, projectId);
   const title = requireString(body.title, "Task title", 200);
   const estimate = optNumber(body.estimateHours, "Estimate", 0) ?? 1;
-  const status = ["Backlog", "Today", "Doing", "Done"].includes(String(body.status))
+  const status = ["Backlog", "Today", "Doing", "Done"].includes(
+    String(body.status),
+  )
     ? String(body.status)
     : "Backlog";
 
@@ -36,5 +50,8 @@ export const POST = withTenant(async ({ tenant, request }) => {
     summary: `Created task ${task.title}`,
     after: task,
   });
-  return new Response(JSON.stringify(task), { status: 201, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(task), {
+    status: 201,
+    headers: { "content-type": "application/json" },
+  });
 });

@@ -1,9 +1,14 @@
+import { requireProject } from "@/lib/validation";
 import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { withTenant } from "@/lib/route";
 import { readJson, requireUuid } from "@/lib/validation";
-import { TASK_COLUMNS, taskFromRow, type BoardTaskRow } from "@/lib/workspace-repository";
+import {
+  TASK_COLUMNS,
+  taskFromRow,
+  type BoardTaskRow,
+} from "@/lib/workspace-repository";
 
 export const runtime = "nodejs";
 
@@ -12,7 +17,10 @@ type Params = { id: string };
 export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   const id = requireUuid(params.id, "Task id");
   const body = await readJson(request);
-  if (body.title !== undefined && (typeof body.title !== "string" || !body.title.trim())) {
+  if (
+    body.title !== undefined &&
+    (typeof body.title !== "string" || !body.title.trim())
+  ) {
     throw new ValidationError("Task title is required");
   }
 
@@ -22,6 +30,22 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   );
   if (!current.rows[0]) throw new NotFoundError("Task not found");
   const existing = current.rows[0];
+  await requireProject(
+    tenant.organization.id,
+    body.projectId === undefined
+      ? existing.project_id
+      : requireUuid(body.projectId, "Project"),
+  );
+  if (body.projectId !== undefined && body.projectId !== existing.project_id) {
+    const linked = await query(
+      "select id from time_entries where task_id=$1 and organization_id=$2 limit 1",
+      [id, tenant.organization.id],
+    );
+    if (linked.rows.length)
+      throw new ConflictError(
+        "Tasks with linked time entries cannot move to another project",
+      );
+  }
   const before = taskFromRow(existing);
 
   const result = await query<BoardTaskRow>(
@@ -32,9 +56,15 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
     [
       id,
       body.projectId ?? existing.project_id,
-      typeof body.title === "string" && body.title.trim() ? body.title.trim() : existing.title,
-      ["Backlog", "Today", "Doing", "Done"].includes(String(body.status)) ? body.status : existing.status,
-      body.estimateHours === undefined ? existing.estimate_hours : Number(body.estimateHours) || 1,
+      typeof body.title === "string" && body.title.trim()
+        ? body.title.trim()
+        : existing.title,
+      ["Backlog", "Today", "Doing", "Done"].includes(String(body.status))
+        ? body.status
+        : existing.status,
+      body.estimateHours === undefined
+        ? existing.estimate_hours
+        : Number(body.estimateHours) || 1,
       tenant.organization.id,
     ],
   );
@@ -66,22 +96,24 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   return updated;
 });
 
-export const DELETE = withTenant<Params>(async ({ tenant, request, params }) => {
-  const id = requireUuid(params.id, "Task id");
-  const result = await query<BoardTaskRow>(
-    `delete from board_tasks where id = $1 and organization_id = $2 returning ${TASK_COLUMNS}`,
-    [id, tenant.organization.id],
-  );
-  if (!result.rows[0]) throw new NotFoundError("Task not found");
-  const removed = taskFromRow(result.rows[0]);
-  await recordAudit({
-    tenant,
-    request,
-    action: "delete",
-    entityType: "board_task",
-    entityId: removed.id,
-    summary: `Deleted task ${removed.title}`,
-    before: removed,
-  });
-  return { ok: true };
-});
+export const DELETE = withTenant<Params>(
+  async ({ tenant, request, params }) => {
+    const id = requireUuid(params.id, "Task id");
+    const result = await query<BoardTaskRow>(
+      `delete from board_tasks where id = $1 and organization_id = $2 returning ${TASK_COLUMNS}`,
+      [id, tenant.organization.id],
+    );
+    if (!result.rows[0]) throw new NotFoundError("Task not found");
+    const removed = taskFromRow(result.rows[0]);
+    await recordAudit({
+      tenant,
+      request,
+      action: "delete",
+      entityType: "board_task",
+      entityId: removed.id,
+      summary: `Deleted task ${removed.title}`,
+      before: removed,
+    });
+    return { ok: true };
+  },
+);

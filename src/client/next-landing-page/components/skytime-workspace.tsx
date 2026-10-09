@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import {
   DndContext,
   type DragEndEvent,
@@ -23,6 +32,7 @@ import {
   ClipboardCheck,
   Clock3,
   Copy,
+  Code2,
   Edit3,
   FileText,
   FolderPlus,
@@ -43,6 +53,13 @@ import {
   Users,
   X,
 } from "lucide-react";
+import {
+  ReportsView,
+  AutomationView,
+  BillingView,
+  ProjectBudgets,
+  PlanningView,
+} from "@/components/workspace-features";
 import { cn } from "@/lib/utils";
 import { loadGooglePlaces } from "@/lib/google-places";
 import type {
@@ -60,6 +77,7 @@ import type {
 } from "@/lib/workspace-types";
 
 type TimerState = {
+  id?: string;
   running: boolean;
   startedAt?: string;
   projectId: string;
@@ -179,18 +197,24 @@ const initialTimer: TimerState = {
 function useStoredState<T>(key: string, initialValue: T | (() => T)) {
   const [value, setValue] = useState<T>(() => {
     if (typeof window === "undefined") {
-      return typeof initialValue === "function" ? (initialValue as () => T)() : initialValue;
+      return typeof initialValue === "function"
+        ? (initialValue as () => T)()
+        : initialValue;
     }
 
     const stored = window.localStorage.getItem(key);
     if (!stored) {
-      return typeof initialValue === "function" ? (initialValue as () => T)() : initialValue;
+      return typeof initialValue === "function"
+        ? (initialValue as () => T)()
+        : initialValue;
     }
 
     try {
       return JSON.parse(stored) as T;
     } catch {
-      return typeof initialValue === "function" ? (initialValue as () => T)() : initialValue;
+      return typeof initialValue === "function"
+        ? (initialValue as () => T)()
+        : initialValue;
     }
   });
 
@@ -201,15 +225,30 @@ function useStoredState<T>(key: string, initialValue: T | (() => T)) {
   return [value, setValue] as const;
 }
 
-export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) {
+export function SkyTimeWorkspace({
+  initialState,
+}: {
+  initialState: AuthState;
+}) {
   const [activeView, setActiveView] = useState("dashboard");
-  const initialWorkspace = initialState.kind === "workspace" ? initialState.data : null;
+  const initialWorkspace =
+    initialState.kind === "workspace" ? initialState.data : null;
   const [authState, setAuthState] = useState(initialState);
-  const [projects, setProjects] = useState<Project[]>(initialWorkspace?.projects ?? []);
-  const [entries, setEntries] = useState<TimeEntry[]>(initialWorkspace?.entries ?? []);
-  const [tasks, setTasks] = useState<BoardTask[]>(initialWorkspace?.tasks ?? []);
-  const [clients, setClients] = useState<Client[]>(initialWorkspace?.clients ?? []);
-  const [currentPeriod, setCurrentPeriod] = useState<TimesheetPeriod | null>(initialWorkspace?.currentPeriod ?? null);
+  const [projects, setProjects] = useState<Project[]>(
+    initialWorkspace?.projects ?? [],
+  );
+  const [entries, setEntries] = useState<TimeEntry[]>(
+    initialWorkspace?.entries ?? [],
+  );
+  const [tasks, setTasks] = useState<BoardTask[]>(
+    initialWorkspace?.tasks ?? [],
+  );
+  const [clients, setClients] = useState<Client[]>(
+    initialWorkspace?.clients ?? [],
+  );
+  const [currentPeriod, setCurrentPeriod] = useState<TimesheetPeriod | null>(
+    initialWorkspace?.currentPeriod ?? null,
+  );
   const [periods, setPeriods] = useState<TimesheetPeriod[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
   const [errorLog, setErrorLog] = useState<ErrorLogEntry[]>([]);
@@ -223,11 +262,27 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     defaultRate: "0",
     notes: "",
   });
-  const [timer, setTimer] = useStoredState<TimerState>("skytime-timer", initialTimer);
-  const [reminders, setReminders] = useState<ReminderSettings>(initialWorkspace?.settings.reminders ?? { enabled: false, cadenceMinutes: 60 });
-  const [fyStartMonth, setFyStartMonth] = useState(initialWorkspace?.settings.fyStartMonth ?? 7);
+  const [timer, setTimer] = useState<TimerState>(initialTimer);
+  const [legacyTimer, setLegacyTimer] = useState<{
+    value: TimerState & { startedAt: string };
+    stored: string;
+  } | null>(null);
+  const [recoveringTimer, setRecoveringTimer] = useState(false);
+  const timerRevision = useRef(0);
+  const timerBusy = useRef(false);
+  const [reminders, setReminders] = useState<ReminderSettings>(
+    initialWorkspace?.settings.reminders ?? {
+      enabled: false,
+      cadenceMinutes: 60,
+    },
+  );
+  const [fyStartMonth, setFyStartMonth] = useState(
+    initialWorkspace?.settings.fyStartMonth ?? 7,
+  );
   const [period, setPeriod] = useState<PeriodPreset>("month");
-  const [customStart, setCustomStart] = useState(toDateInput(startOfMonth(new Date())));
+  const [customStart, setCustomStart] = useState(
+    toDateInput(startOfMonth(new Date())),
+  );
   const [customEnd, setCustomEnd] = useState(toDateInput(endOfDay(new Date())));
   const [now, setNow] = useState(() => new Date());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -236,7 +291,12 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [isAuthPending, startAuthTransition] = useTransition();
-  const [newProject, setNewProject] = useState<NewProjectForm>({ name: "", client: "", clientId: "", rate: "120" });
+  const [newProject, setNewProject] = useState<NewProjectForm>({
+    name: "",
+    client: "",
+    clientId: "",
+    rate: "120",
+  });
   const [manualEntry, setManualEntry] = useState({
     projectId: "",
     task: "",
@@ -245,8 +305,19 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     notes: "",
     billable: true,
   });
-  const [taskForm, setTaskForm] = useState<NewTaskForm>({ projectId: "", title: "", estimateHours: "1" });
-  const [authForm, setAuthForm] = useState<AuthForm>({ mode: "signin", name: "", email: "", password: "", confirmPassword: "", organizationName: "" });
+  const [taskForm, setTaskForm] = useState<NewTaskForm>({
+    projectId: "",
+    title: "",
+    estimateHours: "1",
+  });
+  const [authForm, setAuthForm] = useState<AuthForm>({
+    mode: "signin",
+    name: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    organizationName: "",
+  });
   const [mfa, setMfa] = useState<MfaState>({
     signInRequired: false,
     signInCode: "",
@@ -261,7 +332,10 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     busy: false,
   });
   const [invites, setInvites] = useState<OrganizationInvite[]>([]);
-  const [inviteForm, setInviteForm] = useState({ email: "", role: "member" as "admin" | "member" });
+  const [inviteForm, setInviteForm] = useState({
+    email: "",
+    role: "member" as "admin" | "member",
+  });
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -270,9 +344,18 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
   useEffect(() => {
     if (!initialWorkspace) return;
     const firstProjectId = initialWorkspace.projects[0]?.id ?? "";
-    setTimer((current) => ({ ...current, projectId: current.projectId || firstProjectId }));
-    setManualEntry((current) => ({ ...current, projectId: current.projectId || firstProjectId }));
-    setTaskForm((current) => ({ ...current, projectId: current.projectId || firstProjectId }));
+    setTimer((current) => ({
+      ...current,
+      projectId: current.projectId || firstProjectId,
+    }));
+    setManualEntry((current) => ({
+      ...current,
+      projectId: current.projectId || firstProjectId,
+    }));
+    setTaskForm((current) => ({
+      ...current,
+      projectId: current.projectId || firstProjectId,
+    }));
   }, [initialWorkspace, setTimer]);
 
   useEffect(() => {
@@ -310,7 +393,10 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       await loadWorkspace();
       return true;
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Invite could not be accepted", "error");
+      showToast(
+        error instanceof Error ? error.message : "Invite could not be accepted",
+        "error",
+      );
       return false;
     }
   }
@@ -330,54 +416,90 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       setFyStartMonth(data.settings.fyStartMonth);
 
       const firstProjectId = data.projects[0]?.id ?? "";
-      setTimer((current) => ({ ...current, projectId: current.projectId || firstProjectId }));
-      setManualEntry((current) => ({ ...current, projectId: current.projectId || firstProjectId }));
-      setTaskForm((current) => ({ ...current, projectId: current.projectId || firstProjectId }));
+      setTimer((current) => ({
+        ...current,
+        projectId: current.projectId || firstProjectId,
+      }));
+      setManualEntry((current) => ({
+        ...current,
+        projectId: current.projectId || firstProjectId,
+      }));
+      setTaskForm((current) => ({
+        ...current,
+        projectId: current.projectId || firstProjectId,
+      }));
     } catch (error) {
-      if (error instanceof ApiError && error.data?.needsOrganization && error.data.user) {
-        setAuthState({ kind: "needs-org", user: error.data.user as WorkspacePayload["user"] });
+      if (
+        error instanceof ApiError &&
+        error.data?.needsOrganization &&
+        error.data.user
+      ) {
+        setAuthState({
+          kind: "needs-org",
+          user: error.data.user as WorkspacePayload["user"],
+        });
         return;
       }
-      setLoadError(error instanceof Error ? error.message : "Could not load workspace");
+      setLoadError(
+        error instanceof Error ? error.message : "Could not load workspace",
+      );
     } finally {
       setLoading(false);
     }
   }
 
   async function submitAuth() {
-    if (authForm.mode === "signup" && authForm.password !== authForm.confirmPassword) {
+    if (
+      authForm.mode === "signup" &&
+      authForm.password !== authForm.confirmPassword
+    ) {
       setLoadError("Passwords do not match");
       return;
     }
 
     startAuthTransition(() => {
       void (async () => {
-      try {
-        setLoadError("");
-        const endpoint = authForm.mode === "signin" ? "/api/auth/sign-in/email" : "/api/auth/sign-up/email";
-        const result = await api<{ twoFactorRedirect?: boolean; twoFactorMethods?: string[] }>(endpoint, {
-          method: "POST",
-          body: JSON.stringify({
-            email: authForm.email,
-            password: authForm.password,
-            name: authForm.name || authForm.email,
-          }),
-        });
-        if (result.twoFactorRedirect) {
-          setMfa((current) => ({ ...current, signInRequired: true, signInCode: "", signInBackupCode: "" }));
-          return;
+        try {
+          setLoadError("");
+          const endpoint =
+            authForm.mode === "signin"
+              ? "/api/auth/sign-in/email"
+              : "/api/auth/sign-up/email";
+          const result = await api<{
+            twoFactorRedirect?: boolean;
+            twoFactorMethods?: string[];
+          }>(endpoint, {
+            method: "POST",
+            body: JSON.stringify({
+              email: authForm.email,
+              password: authForm.password,
+              name: authForm.name || authForm.email,
+            }),
+          });
+          if (result.twoFactorRedirect) {
+            setMfa((current) => ({
+              ...current,
+              signInRequired: true,
+              signInCode: "",
+              signInBackupCode: "",
+            }));
+            return;
+          }
+          if (await acceptPendingInvite()) return;
+          await loadWorkspace();
+        } catch (error) {
+          setLoadError(
+            error instanceof Error ? error.message : "Authentication failed",
+          );
         }
-        if (await acceptPendingInvite()) return;
-        await loadWorkspace();
-      } catch (error) {
-        setLoadError(error instanceof Error ? error.message : "Authentication failed");
-      }
       })();
     });
   }
 
   async function verifyMfaSignIn() {
-    const code = mfa.signInUseBackupCode ? mfa.signInBackupCode.trim() : mfa.signInCode.trim();
+    const code = mfa.signInUseBackupCode
+      ? mfa.signInBackupCode.trim()
+      : mfa.signInCode.trim();
     if (!code) {
       setLoadError("Enter your verification code");
       return;
@@ -387,16 +509,25 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       void (async () => {
         try {
           setLoadError("");
-          const endpoint = mfa.signInUseBackupCode ? "/api/auth/two-factor/verify-backup-code" : "/api/auth/two-factor/verify-totp";
+          const endpoint = mfa.signInUseBackupCode
+            ? "/api/auth/two-factor/verify-backup-code"
+            : "/api/auth/two-factor/verify-totp";
           await api(endpoint, {
             method: "POST",
             body: JSON.stringify({ code, trustDevice: mfa.trustDevice }),
           });
-          setMfa((current) => ({ ...current, signInRequired: false, signInCode: "", signInBackupCode: "" }));
+          setMfa((current) => ({
+            ...current,
+            signInRequired: false,
+            signInCode: "",
+            signInBackupCode: "",
+          }));
           if (await acceptPendingInvite()) return;
           await loadWorkspace();
         } catch (error) {
-          setLoadError(error instanceof Error ? error.message : "MFA verification failed");
+          setLoadError(
+            error instanceof Error ? error.message : "MFA verification failed",
+          );
         }
       })();
     });
@@ -410,10 +541,16 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
 
     try {
       setMfa((current) => ({ ...current, busy: true }));
-      const result = await api<{ totpURI: string; backupCodes: string[] }>("/api/auth/two-factor/enable", {
-        method: "POST",
-        body: JSON.stringify({ password: mfa.enablePassword, issuer: "SkyTime" }),
-      });
+      const result = await api<{ totpURI: string; backupCodes: string[] }>(
+        "/api/auth/two-factor/enable",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            password: mfa.enablePassword,
+            issuer: "SkyTime",
+          }),
+        },
+      );
       setMfa((current) => ({
         ...current,
         setupTotpUri: result.totpURI,
@@ -424,7 +561,12 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       showToast("MFA setup started", "success");
     } catch (error) {
       setMfa((current) => ({ ...current, busy: false }));
-      showToast(error instanceof Error ? error.message : "MFA setup could not be started", "error");
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "MFA setup could not be started",
+        "error",
+      );
     }
   }
 
@@ -442,14 +584,29 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       });
       setAuthState((current) =>
         current.kind === "workspace"
-          ? { ...current, data: { ...current.data, user: { ...current.data.user, twoFactorEnabled: true } } }
+          ? {
+              ...current,
+              data: {
+                ...current.data,
+                user: { ...current.data.user, twoFactorEnabled: true },
+              },
+            }
           : current,
       );
-      setMfa((current) => ({ ...current, enablePassword: "", setupCode: "", setupTotpUri: "", busy: false }));
+      setMfa((current) => ({
+        ...current,
+        enablePassword: "",
+        setupCode: "",
+        setupTotpUri: "",
+        busy: false,
+      }));
       showToast("MFA enabled", "success");
     } catch (error) {
       setMfa((current) => ({ ...current, busy: false }));
-      showToast(error instanceof Error ? error.message : "MFA verification failed", "error");
+      showToast(
+        error instanceof Error ? error.message : "MFA verification failed",
+        "error",
+      );
     }
   }
 
@@ -461,7 +618,8 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
 
     askConfirm({
       title: "Disable MFA?",
-      message: "Your account will only be protected by its password after this change.",
+      message:
+        "Your account will only be protected by its password after this change.",
       actionLabel: "Disable MFA",
       onConfirm: async () => {
         try {
@@ -472,14 +630,31 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
           });
           setAuthState((current) =>
             current.kind === "workspace"
-              ? { ...current, data: { ...current.data, user: { ...current.data.user, twoFactorEnabled: false } } }
+              ? {
+                  ...current,
+                  data: {
+                    ...current.data,
+                    user: { ...current.data.user, twoFactorEnabled: false },
+                  },
+                }
               : current,
           );
-          setMfa((current) => ({ ...current, disablePassword: "", backupCodes: [], setupTotpUri: "", busy: false }));
+          setMfa((current) => ({
+            ...current,
+            disablePassword: "",
+            backupCodes: [],
+            setupTotpUri: "",
+            busy: false,
+          }));
           showToast("MFA disabled", "success");
         } catch (error) {
           setMfa((current) => ({ ...current, busy: false }));
-          showToast(error instanceof Error ? error.message : "MFA could not be disabled", "error");
+          showToast(
+            error instanceof Error
+              ? error.message
+              : "MFA could not be disabled",
+            "error",
+          );
         }
       },
     });
@@ -493,41 +668,65 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
 
     try {
       setMfa((current) => ({ ...current, busy: true }));
-      const result = await api<{ backupCodes: string[] }>("/api/auth/two-factor/generate-backup-codes", {
-        method: "POST",
-        body: JSON.stringify({ password: mfa.enablePassword }),
-      });
-      setMfa((current) => ({ ...current, backupCodes: result.backupCodes, enablePassword: "", busy: false }));
+      const result = await api<{ backupCodes: string[] }>(
+        "/api/auth/two-factor/generate-backup-codes",
+        {
+          method: "POST",
+          body: JSON.stringify({ password: mfa.enablePassword }),
+        },
+      );
+      setMfa((current) => ({
+        ...current,
+        backupCodes: result.backupCodes,
+        enablePassword: "",
+        busy: false,
+      }));
       showToast("Backup codes regenerated", "success");
     } catch (error) {
       setMfa((current) => ({ ...current, busy: false }));
-      showToast(error instanceof Error ? error.message : "Backup codes could not be regenerated", "error");
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Backup codes could not be regenerated",
+        "error",
+      );
     }
   }
 
   async function createOrganization() {
     startAuthTransition(() => {
       void (async () => {
-      try {
-        setLoadError("");
-        await api("/api/organizations", {
-          method: "POST",
-          body: JSON.stringify({ name: authForm.organizationName }),
-        });
-        await loadWorkspace();
-      } catch (error) {
-        setLoadError(error instanceof Error ? error.message : "Organization could not be created");
-      }
+        try {
+          setLoadError("");
+          await api("/api/organizations", {
+            method: "POST",
+            body: JSON.stringify({ name: authForm.organizationName }),
+          });
+          await loadWorkspace();
+        } catch (error) {
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : "Organization could not be created",
+          );
+        }
       })();
     });
   }
 
   async function loadInvites() {
-    if (authState.kind !== "workspace" || authState.data.organization.role !== "admin") return;
+    if (
+      authState.kind !== "workspace" ||
+      authState.data.organization.role !== "admin"
+    )
+      return;
     try {
       setInvites(await api<OrganizationInvite[]>("/api/invitations"));
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Invites could not be loaded", "error");
+      showToast(
+        error instanceof Error ? error.message : "Invites could not be loaded",
+        "error",
+      );
     }
   }
 
@@ -537,11 +736,22 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
         method: "POST",
         body: JSON.stringify(inviteForm),
       });
-      setInvites((current) => [invite, ...current.filter((item) => item.id !== invite.id)]);
+      setInvites((current) => [
+        invite,
+        ...current.filter((item) => item.id !== invite.id),
+      ]);
       setInviteForm({ email: "", role: "member" });
-      showToast(invite.emailSent ? "Invite sent" : "Invite created. Configure Resend to send email.", invite.emailSent ? "success" : "info");
+      showToast(
+        invite.emailSent
+          ? "Invite sent"
+          : "Invite created. Configure Resend to send email.",
+        invite.emailSent ? "success" : "info",
+      );
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Invite could not be created", "error");
+      showToast(
+        error instanceof Error ? error.message : "Invite could not be created",
+        "error",
+      );
     }
   }
 
@@ -549,15 +759,26 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     const invite = invites.find((item) => item.id === id);
     askConfirm({
       title: "Revoke invite?",
-      message: invite ? `${invite.email} will no longer be able to join this organization from that invite.` : "This invite will be revoked.",
+      message: invite
+        ? `${invite.email} will no longer be able to join this organization from that invite.`
+        : "This invite will be revoked.",
       actionLabel: "Revoke invite",
       onConfirm: async () => {
         try {
           await api(`/api/invitations/${id}`, { method: "DELETE" });
-          setInvites((current) => current.map((invite) => (invite.id === id ? { ...invite, status: "revoked" } : invite)));
+          setInvites((current) =>
+            current.map((invite) =>
+              invite.id === id ? { ...invite, status: "revoked" } : invite,
+            ),
+          );
           showToast("Invite revoked", "success");
         } catch (error) {
-          showToast(error instanceof Error ? error.message : "Invite could not be revoked", "error");
+          showToast(
+            error instanceof Error
+              ? error.message
+              : "Invite could not be revoked",
+            "error",
+          );
         }
       },
     });
@@ -572,67 +793,254 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     if (!reminders.enabled) return;
 
     const cadenceMs = reminders.cadenceMinutes * 60 * 1000;
-    const id = window.setInterval(() => {
-      const lastSent = reminders.lastSentAt ? new Date(reminders.lastSentAt).getTime() : 0;
-      if (Date.now() - lastSent < cadenceMs) return;
+    const id = window.setInterval(
+      () => {
+        const lastSent = reminders.lastSentAt
+          ? new Date(reminders.lastSentAt).getTime()
+          : 0;
+        if (Date.now() - lastSent < cadenceMs) return;
 
-      sendReminder("Track the last hour", "Add a quick SkyTime entry while the work is still fresh.");
-      const next = { ...reminders, lastSentAt: new Date().toISOString() };
-      setReminders(next);
-      saveSettings({ reminders: next });
-    }, Math.min(cadenceMs, 60 * 1000));
+        sendReminder(
+          "Track the last hour",
+          "Add a quick SkyTime entry while the work is still fresh.",
+        );
+        const next = { ...reminders, lastSentAt: new Date().toISOString() };
+        setReminders(next);
+        saveSettings({ reminders: next });
+      },
+      Math.min(cadenceMs, 60 * 1000),
+    );
 
     return () => window.clearInterval(id);
-  }, [reminders.enabled, reminders.cadenceMinutes, reminders.lastSentAt, setReminders]);
+  }, [
+    reminders.enabled,
+    reminders.cadenceMinutes,
+    reminders.lastSentAt,
+    setReminders,
+  ]);
 
-  const activeProject = projects.find((project) => project.id === timer.projectId) ?? projects[0];
-  const elapsedMs = timer.running && timer.startedAt ? now.getTime() - new Date(timer.startedAt).getTime() : 0;
+  const activeProject =
+    projects.find((project) => project.id === timer.projectId) ?? projects[0];
+  const elapsedMs =
+    timer.running && timer.startedAt
+      ? now.getTime() - new Date(timer.startedAt).getTime()
+      : 0;
   const periodRange = useMemo(
     () => getPeriodRange(period, fyStartMonth, customStart, customEnd),
     [customEnd, customStart, fyStartMonth, period],
   );
   const filteredEntries = useMemo(
-    () => entries.filter((entry) => isInsideRange(new Date(entry.startedAt), periodRange.start, periodRange.end)),
+    () =>
+      entries.filter((entry) =>
+        isInsideRange(
+          new Date(entry.startedAt),
+          periodRange.start,
+          periodRange.end,
+        ),
+      ),
     [entries, periodRange],
   );
-  const totals = useMemo(() => getTotals(filteredEntries, projects), [filteredEntries, projects]);
+  const totals = useMemo(
+    () => getTotals(filteredEntries, projects),
+    [filteredEntries, projects],
+  );
   const todayMs = useMemo(() => {
     const range = getPeriodRange("today", fyStartMonth, customStart, customEnd);
     return entries
-      .filter((entry) => isInsideRange(new Date(entry.startedAt), range.start, range.end))
+      .filter((entry) =>
+        isInsideRange(new Date(entry.startedAt), range.start, range.end),
+      )
       .reduce((sum, entry) => sum + entry.durationMs, 0);
   }, [customEnd, customStart, entries, fyStartMonth]);
 
-  function startTimer() {
+  useEffect(() => {
+    if (authState.kind !== "workspace") return;
+    try {
+      const stored = window.localStorage.getItem("skytime-timer");
+      const value = stored ? JSON.parse(stored) : null;
+      // Old timers were browser-wide. Offer recovery only in the workspace
+      // containing their project, and leave the original untouched until saved.
+      if (
+        stored &&
+        value?.running === true &&
+        typeof value.startedAt === "string" &&
+        Number.isFinite(Date.parse(value.startedAt)) &&
+        typeof value.task === "string" &&
+        typeof value.notes === "string" &&
+        typeof value.billable === "boolean" &&
+        projects.some((project) => project.id === value.projectId)
+      ) {
+        setLegacyTimer({ value, stored });
+      } else setLegacyTimer(null);
+    } catch {
+      // Keep malformed or inaccessible browser data available for recovery.
+    }
+  }, [authState.kind, projects]);
+
+  async function recoverLegacyTimer() {
+    if (!legacyTimer || timerBusy.current) return;
+    timerBusy.current = true;
+    timerRevision.current++;
+    setRecoveringTimer(true);
+    try {
+      const saved = legacyTimer.value;
+      const task = saved.task.trim() || "Unlabelled work";
+      const remote = await api<TimerState | null>("/api/v1/timer");
+      // A previous recovery may have succeeded even if its response was lost.
+      const matches =
+        remote &&
+        remote.projectId === saved.projectId &&
+        remote.startedAt &&
+        Date.parse(remote.startedAt) === Date.parse(saved.startedAt) &&
+        remote.task === task &&
+        remote.notes === saved.notes &&
+        remote.billable === saved.billable;
+      if (remote && !matches)
+        throw new Error(
+          "Stop and save the current timer before recovering this browser timer. Your browser timer is still saved.",
+        );
+      const recovered =
+        remote ??
+        (await api<TimerState>("/api/v1/timer", {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: saved.projectId,
+            startedAt: saved.startedAt,
+            task,
+            notes: saved.notes,
+            billable: saved.billable,
+          }),
+        }));
+      setTimer(recovered);
+      // Do not remove a different timer written by another browser tab.
+      if (window.localStorage.getItem("skytime-timer") === legacyTimer.stored)
+        window.localStorage.removeItem("skytime-timer");
+      setLegacyTimer(null);
+      showToast(
+        "Browser timer recovered with its original start time",
+        "success",
+      );
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Could not recover timer. Your browser timer is still saved.",
+        "error",
+      );
+    } finally {
+      timerBusy.current = false;
+      timerRevision.current++;
+      setRecoveringTimer(false);
+    }
+  }
+
+  useEffect(() => {
+    if (authState.kind !== "workspace") return;
+    let active = true;
+    const sync = async () => {
+      if (timerBusy.current) return;
+      const revision = timerRevision.current;
+      try {
+        const remote = await api<TimerState | null>("/api/v1/timer");
+        if (!active || timerBusy.current || revision !== timerRevision.current)
+          return;
+        setTimer((current) =>
+          remote
+            ? remote.id === current.id
+              ? { ...current, running: true, startedAt: remote.startedAt }
+              : remote
+            : {
+                ...current,
+                id: undefined,
+                running: false,
+                startedAt: undefined,
+              },
+        );
+        const nextEntries = await api<TimeEntry[]>("/api/time-entries");
+        if (active) setEntries(nextEntries);
+      } catch {
+        /* Existing timer stays visible during a temporary network failure. */
+      }
+    };
+    void sync();
+    const interval = window.setInterval(sync, 15000);
+    window.addEventListener("focus", sync);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      window.removeEventListener("focus", sync);
+    };
+  }, [authState.kind]);
+
+  async function startTimer() {
+    if (timerBusy.current) return;
     if (!timer.projectId) {
       showToast("Create a project before starting the timer", "error");
       return;
     }
 
-    setTimer((current) => ({
-      ...current,
-      running: true,
-      startedAt: new Date().toISOString(),
-      task: current.task.trim() || "Unlabelled work",
-    }));
+    timerBusy.current = true;
+    timerRevision.current++;
+    try {
+      const next = await api<TimerState>("/api/v1/timer", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: timer.projectId,
+          task: timer.task.trim() || "Unlabelled work",
+          notes: timer.notes,
+          billable: timer.billable,
+        }),
+      });
+      setTimer(next);
+      showToast("Timer started", "success");
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Could not start timer",
+        "error",
+      );
+    } finally {
+      timerBusy.current = false;
+      timerRevision.current++;
+    }
   }
 
-  function stopTimer() {
-    if (!timer.running || !timer.startedAt) return;
-
-    const durationMs = Math.max(60 * 1000, Date.now() - new Date(timer.startedAt).getTime());
-    createEntry({
-        projectId: timer.projectId,
-        task: timer.task.trim() || "Unlabelled work",
-        notes: timer.notes.trim(),
-        startedAt: timer.startedAt!,
-        durationMs,
-        billable: timer.billable,
-    }).then((entry) => {
-      if (!entry) return;
-      setTimer((current) => ({ ...current, running: false, startedAt: undefined, notes: "", task: "" }));
+  async function stopTimer() {
+    if (!timer.id || timerBusy.current) return;
+    timerBusy.current = true;
+    timerRevision.current++;
+    try {
+      const entry = await api<TimeEntry>("/api/v1/timer/stop", {
+        method: "POST",
+        body: JSON.stringify({
+          id: timer.id,
+          projectId: timer.projectId,
+          task: timer.task.trim() || "Unlabelled work",
+          notes: timer.notes,
+          billable: timer.billable,
+        }),
+      });
+      setEntries((current) => [
+        entry,
+        ...current.filter((item) => item.id !== entry.id),
+      ]);
+      setTimer((current) => ({
+        ...current,
+        id: undefined,
+        running: false,
+        startedAt: undefined,
+        task: "",
+        notes: "",
+      }));
       showToast("Entry saved", "success");
-    });
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Could not stop timer",
+        "error",
+      );
+    } finally {
+      timerBusy.current = false;
+      timerRevision.current++;
+    }
   }
 
   async function addProject() {
@@ -661,7 +1069,10 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       setNewProject({ name: "", client: "", clientId: "", rate: "120" });
       showToast("Project created", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Project could not be created", "error");
+      showToast(
+        error instanceof Error ? error.message : "Project could not be created",
+        "error",
+      );
     }
   }
 
@@ -683,11 +1094,25 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
           notes: newClient.notes.trim(),
         }),
       });
-      setClients((current) => [client, ...current.filter((item) => item.id !== client.id)]);
-      setNewClient({ name: "", contactName: "", contactEmail: "", address: "", currency: "AUD", defaultRate: "0", notes: "" });
+      setClients((current) => [
+        client,
+        ...current.filter((item) => item.id !== client.id),
+      ]);
+      setNewClient({
+        name: "",
+        contactName: "",
+        contactEmail: "",
+        address: "",
+        currency: "AUD",
+        defaultRate: "0",
+        notes: "",
+      });
       showToast("Client created", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Client could not be created", "error");
+      showToast(
+        error instanceof Error ? error.message : "Client could not be created",
+        "error",
+      );
     }
   }
 
@@ -703,11 +1128,20 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
         try {
           await api(`/api/clients/${id}`, { method: "DELETE" });
           setClients((current) =>
-            current.map((item) => (item.id === id ? { ...item, archivedAt: new Date().toISOString() } : item)),
+            current.map((item) =>
+              item.id === id
+                ? { ...item, archivedAt: new Date().toISOString() }
+                : item,
+            ),
           );
           showToast("Client archived", "success");
         } catch (error) {
-          showToast(error instanceof Error ? error.message : "Client could not be archived", "error");
+          showToast(
+            error instanceof Error
+              ? error.message
+              : "Client could not be archived",
+            "error",
+          );
         }
       },
     });
@@ -717,10 +1151,15 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     if (authState.kind !== "workspace") return;
     const scope = authState.data.organization.role === "admin" ? "all" : "own";
     try {
-      const data = await api<TimesheetPeriod[]>(`/api/timesheets?scope=${scope}`);
+      const data = await api<TimesheetPeriod[]>(
+        `/api/timesheets?scope=${scope}`,
+      );
       setPeriods(data);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Could not load timesheets", "error");
+      showToast(
+        error instanceof Error ? error.message : "Could not load timesheets",
+        "error",
+      );
     }
   }
 
@@ -731,20 +1170,30 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       return;
     }
     try {
-      const updated = await api<TimesheetPeriod>(`/api/timesheets/${currentPeriod.id}`, {
-        method: "POST",
-        body: JSON.stringify({ action: "submit", note: submitNote }),
-      });
+      const updated = await api<TimesheetPeriod>(
+        `/api/timesheets/${currentPeriod.id}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ action: "submit", note: submitNote }),
+        },
+      );
       setCurrentPeriod(updated);
       setPeriods((current) => upsertPeriod(current, updated));
       setSubmitNote("");
       showToast("Timesheet submitted for review", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Could not submit timesheet", "error");
+      showToast(
+        error instanceof Error ? error.message : "Could not submit timesheet",
+        "error",
+      );
     }
   }
 
-  async function reviewPeriod(id: string, action: "approve" | "reject" | "reopen", note = "") {
+  async function reviewPeriod(
+    id: string,
+    action: "approve" | "reject" | "reopen",
+    note = "",
+  ) {
     try {
       const updated = await api<TimesheetPeriod>(`/api/timesheets/${id}`, {
         method: "POST",
@@ -758,12 +1207,15 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
         action === "approve"
           ? "Timesheet approved"
           : action === "reject"
-          ? "Timesheet rejected"
-          : "Timesheet reopened",
+            ? "Timesheet rejected"
+            : "Timesheet reopened",
         action === "reject" ? "info" : "success",
       );
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Could not review timesheet", "error");
+      showToast(
+        error instanceof Error ? error.message : "Could not review timesheet",
+        "error",
+      );
     }
   }
 
@@ -778,22 +1230,36 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
   }
 
   async function loadAuditLog() {
-    if (authState.kind !== "workspace" || authState.data.organization.role !== "admin") return;
+    if (
+      authState.kind !== "workspace" ||
+      authState.data.organization.role !== "admin"
+    )
+      return;
     try {
       const data = await api<AuditLogEntry[]>("/api/audit-log?limit=100");
       setAuditLog(data);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Could not load audit log", "error");
+      showToast(
+        error instanceof Error ? error.message : "Could not load audit log",
+        "error",
+      );
     }
   }
 
   async function loadErrorLog() {
-    if (authState.kind !== "workspace" || authState.data.organization.role !== "admin") return;
+    if (
+      authState.kind !== "workspace" ||
+      authState.data.organization.role !== "admin"
+    )
+      return;
     try {
       const data = await api<ErrorLogEntry[]>("/api/error-log?limit=100");
       setErrorLog(data);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Could not load error log", "error");
+      showToast(
+        error instanceof Error ? error.message : "Could not load error log",
+        "error",
+      );
     }
   }
 
@@ -805,12 +1271,12 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     }
 
     const entry = await createEntry({
-        projectId: manualEntry.projectId,
-        task: manualEntry.task.trim(),
-        notes: manualEntry.notes.trim(),
-        startedAt: new Date(`${manualEntry.date}T09:00:00`).toISOString(),
-        durationMs: durationHours * 60 * 60 * 1000,
-        billable: manualEntry.billable,
+      projectId: manualEntry.projectId,
+      task: manualEntry.task.trim(),
+      notes: manualEntry.notes.trim(),
+      startedAt: new Date(`${manualEntry.date}T09:00:00`).toISOString(),
+      durationMs: Math.round(durationHours * 60 * 60 * 1000),
+      billable: manualEntry.billable,
     });
 
     if (!entry) return;
@@ -818,7 +1284,9 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     showToast("Manual entry added", "success");
   }
 
-  async function createEntry(payload: Omit<TimeEntry, "id" | "userId" | "locked">) {
+  async function createEntry(
+    payload: Omit<TimeEntry, "id" | "userId" | "locked">,
+  ) {
     try {
       const entry = await api<TimeEntry>("/api/time-entries", {
         method: "POST",
@@ -827,7 +1295,10 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       setEntries((current) => [entry, ...current]);
       return entry;
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Entry could not be saved", "error");
+      showToast(
+        error instanceof Error ? error.message : "Entry could not be saved",
+        "error",
+      );
       return null;
     }
   }
@@ -836,7 +1307,9 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     const entry = entries.find((item) => item.id === id);
     askConfirm({
       title: "Delete time entry?",
-      message: entry ? `"${entry.task}" will be removed from this timesheet.` : "This time entry will be removed from the timesheet.",
+      message: entry
+        ? `"${entry.task}" will be removed from this timesheet.`
+        : "This time entry will be removed from the timesheet.",
       actionLabel: "Delete entry",
       onConfirm: async () => {
         try {
@@ -844,7 +1317,12 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
           setEntries((current) => current.filter((entry) => entry.id !== id));
           showToast("Entry deleted", "success");
         } catch (error) {
-          showToast(error instanceof Error ? error.message : "Entry could not be deleted", "error");
+          showToast(
+            error instanceof Error
+              ? error.message
+              : "Entry could not be deleted",
+            "error",
+          );
         }
       },
     });
@@ -857,7 +1335,9 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
 
     const previous = tasks;
     setTasks((current) =>
-      current.map((task) => (task.id === taskId ? { ...task, status: overId as BoardStatus } : task)),
+      current.map((task) =>
+        task.id === taskId ? { ...task, status: overId as BoardStatus } : task,
+      ),
     );
 
     try {
@@ -865,10 +1345,15 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
         method: "PATCH",
         body: JSON.stringify({ status: overId }),
       });
-      setTasks((current) => current.map((task) => (task.id === taskId ? updated : task)));
+      setTasks((current) =>
+        current.map((task) => (task.id === taskId ? updated : task)),
+      );
     } catch (error) {
       setTasks(previous);
-      showToast(error instanceof Error ? error.message : "Task could not be moved", "error");
+      showToast(
+        error instanceof Error ? error.message : "Task could not be moved",
+        "error",
+      );
     }
   }
 
@@ -892,7 +1377,10 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       setTaskForm((current) => ({ ...current, title: "" }));
       showToast("Task created", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Task could not be created", "error");
+      showToast(
+        error instanceof Error ? error.message : "Task could not be created",
+        "error",
+      );
     }
   }
 
@@ -900,7 +1388,9 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     const task = tasks.find((item) => item.id === id);
     askConfirm({
       title: "Delete task?",
-      message: task ? `"${task.title}" will be removed from the board.` : "This task will be removed from the board.",
+      message: task
+        ? `"${task.title}" will be removed from the board.`
+        : "This task will be removed from the board.",
       actionLabel: "Delete task",
       onConfirm: async () => {
         try {
@@ -908,7 +1398,12 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
           setTasks((current) => current.filter((task) => task.id !== id));
           showToast("Task deleted", "success");
         } catch (error) {
-          showToast(error instanceof Error ? error.message : "Task could not be deleted", "error");
+          showToast(
+            error instanceof Error
+              ? error.message
+              : "Task could not be deleted",
+            "error",
+          );
         }
       },
     });
@@ -920,10 +1415,15 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      setProjects((current) => current.map((item) => (item.id === id ? project : item)));
+      setProjects((current) =>
+        current.map((item) => (item.id === id ? project : item)),
+      );
       showToast("Project updated", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Project could not be updated", "error");
+      showToast(
+        error instanceof Error ? error.message : "Project could not be updated",
+        "error",
+      );
     }
   }
 
@@ -931,32 +1431,54 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     const project = projects.find((item) => item.id === id);
     askConfirm({
       title: "Delete project?",
-      message: project ? `${project.name}, its time entries, and its board tasks will be permanently removed.` : "This project and its related work will be permanently removed.",
+      message: project
+        ? `${project.name}, its time entries, and its board tasks will be permanently removed.`
+        : "This project and its related work will be permanently removed.",
       actionLabel: "Delete project",
       onConfirm: async () => {
         try {
           await api(`/api/projects/${id}`, { method: "DELETE" });
-          setProjects((current) => current.filter((project) => project.id !== id));
-          setEntries((current) => current.filter((entry) => entry.projectId !== id));
-          setTasks((current) => current.filter((task) => task.projectId !== id));
+          setProjects((current) =>
+            current.filter((project) => project.id !== id),
+          );
+          setEntries((current) =>
+            current.filter((entry) => entry.projectId !== id),
+          );
+          setTasks((current) =>
+            current.filter((task) => task.projectId !== id),
+          );
           showToast("Project deleted", "success");
         } catch (error) {
-          showToast(error instanceof Error ? error.message : "Project could not be deleted", "error");
+          showToast(
+            error instanceof Error
+              ? error.message
+              : "Project could not be deleted",
+            "error",
+          );
         }
       },
     });
   }
 
-  async function saveSettings(settings: { reminders?: ReminderSettings; fyStartMonth?: number }) {
+  async function saveSettings(settings: {
+    reminders?: ReminderSettings;
+    fyStartMonth?: number;
+  }) {
     try {
-      const updated = await api<{ reminders: ReminderSettings; fyStartMonth: number }>("/api/settings", {
+      const updated = await api<{
+        reminders: ReminderSettings;
+        fyStartMonth: number;
+      }>("/api/settings", {
         method: "PATCH",
         body: JSON.stringify(settings),
       });
       setReminders(updated.reminders);
       setFyStartMonth(updated.fyStartMonth);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Settings could not be saved", "error");
+      showToast(
+        error instanceof Error ? error.message : "Settings could not be saved",
+        "error",
+      );
     }
   }
 
@@ -975,7 +1497,10 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     });
   }
 
-  function sendReminder(title = "SkyTime reminder", body = "Log what you have been working on.") {
+  function sendReminder(
+    title = "SkyTime reminder",
+    body = "Log what you have been working on.",
+  ) {
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification(title, { body, tag: "skytime-reminder" });
     } else {
@@ -995,13 +1520,19 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
     setConfirmState(confirm);
   }
 
-  const isAdmin = authState.kind === "workspace" && authState.data.organization.role === "admin";
+  const isAdmin =
+    authState.kind === "workspace" &&
+    authState.data.organization.role === "admin";
   const navItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "clients", label: "Clients", icon: Building2 },
     { id: "projects", label: "Projects", icon: BriefcaseBusiness },
     { id: "board", label: "Board", icon: SquareKanban },
     { id: "timesheets", label: "Timesheets", icon: FileText },
+    { id: "reports", label: "Reports", icon: CalendarRange },
+    { id: "planning", label: "Planning", icon: CalendarRange },
+    { id: "billing", label: "Billing", icon: BriefcaseBusiness },
+    { id: "automation", label: "API & MCP", icon: Code2 },
     { id: "approvals", label: "Approvals", icon: ClipboardCheck },
     ...(isAdmin
       ? [
@@ -1011,7 +1542,11 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       : []),
     { id: "settings", label: "Settings", icon: Settings2 },
   ];
-  const mobileNavItems = navItems.filter((item) => ["dashboard", "projects", "timesheets", "approvals", "settings"].includes(item.id));
+  const mobileNavItems = navItems.filter((item) =>
+    ["dashboard", "projects", "timesheets", "approvals", "settings"].includes(
+      item.id,
+    ),
+  );
 
   if (authState.kind === "signed-out") {
     return (
@@ -1050,7 +1585,9 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
       <div className="grid min-h-screen place-items-center px-4 text-[var(--text)]">
         <div className="sky-panel w-full max-w-sm p-6">
           <Brand />
-          <p className="mt-5 text-sm text-[var(--muted)]">Loading workspace from Postgres...</p>
+          <p className="mt-5 text-sm text-[var(--muted)]">
+            Loading workspace from Postgres...
+          </p>
         </div>
       </div>
     );
@@ -1064,7 +1601,8 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
           <h1 className="mt-5 text-lg font-semibold">Database is not ready</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">{loadError}</p>
           <p className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
-            Run docker compose up -d, then npm run db:migrate from the Next app folder.
+            Run docker compose up -d, then npm run db:migrate from the Next app
+            folder.
           </p>
           <div className="mt-4">
             <Button tone="neutral" onClick={loadWorkspace}>
@@ -1078,9 +1616,13 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
 
   return (
     <div className="min-h-screen text-[var(--text)]">
-      <aside className="sky-glass fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-[var(--border)] px-4 py-5 lg:block">
+      <aside className="sky-glass fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-[var(--border)] px-4 py-5 lg:flex lg:flex-col">
         <Brand />
-        <nav className="mt-8 space-y-1" aria-label="Primary" data-testid="desktop-nav">
+        <nav
+          className="mt-8 min-h-0 flex-1 space-y-1 overflow-y-auto"
+          aria-label="Primary"
+          data-testid="desktop-nav"
+        >
           {navItems.map((item) => (
             <NavButton
               key={item.id}
@@ -1091,10 +1633,18 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
             />
           ))}
         </nav>
-        <div className="absolute bottom-5 left-4 right-4 rounded-2xl border border-[var(--border)] bg-[var(--raised)] p-4 shadow-[var(--soft-shadow)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Today</p>
-          <p className="mt-2 text-2xl font-bold tabular">{formatDuration(todayMs + elapsedMs)}</p>
-          <p className="mt-1 text-xs text-[var(--muted)]">{timer.running ? `Running on ${activeProject?.name}` : "No active timer"}</p>
+        <div className="mt-4 shrink-0 rounded-2xl border border-[var(--border)] bg-[var(--raised)] p-4 shadow-[var(--soft-shadow)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+            Today
+          </p>
+          <p className="mt-2 text-2xl font-bold tabular">
+            {formatDuration(todayMs + elapsedMs)}
+          </p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            {timer.running
+              ? `Running on ${activeProject?.name}`
+              : "No active timer"}
+          </p>
         </div>
       </aside>
 
@@ -1102,10 +1652,22 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
         <div className="flex items-center justify-between gap-3">
           <Brand compact />
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate rounded-xl border border-[var(--border)] bg-[var(--raised)] px-3 py-2 text-sm font-semibold shadow-sm">
-              {navItems.find((item) => item.id === activeView)?.label ?? "Dashboard"}
-            </span>
-            <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "light" ? "dark" : "light")} />
+            <select
+              aria-label="Workspace section"
+              value={activeView}
+              onChange={(event) => setActiveView(event.target.value)}
+              className="min-w-0 max-w-36 rounded-xl border border-[var(--border)] bg-[var(--raised)] px-2 py-2 text-sm font-semibold"
+            >
+              {navItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+            <ThemeToggle
+              theme={theme}
+              onToggle={() => setTheme(theme === "light" ? "dark" : "light")}
+            />
           </div>
         </div>
       </header>
@@ -1114,19 +1676,68 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
         <div className="mx-auto max-w-7xl px-3 pb-28 pt-4 sm:px-6 sm:pb-8 lg:px-8 lg:py-7">
           <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--raised)_72%,transparent)] p-4 shadow-[var(--soft-shadow)] backdrop-blur sm:p-5 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--accent-strong)]">Workspace</p>
-              <h1 className="mt-1 text-2xl font-bold leading-tight sm:text-[30px]">Track time without losing the workday.</h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--accent-strong)]">
+                Workspace
+              </p>
+              <h1 className="mt-1 text-2xl font-bold leading-tight sm:text-[30px]">
+                {activeView === "dashboard"
+                  ? "Track time without losing the workday."
+                  : navItems.find((item) => item.id === activeView)?.label}
+              </h1>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="hidden lg:block">
-                <ThemeToggle theme={theme} onToggle={() => setTheme(theme === "light" ? "dark" : "light")} />
+                <ThemeToggle
+                  theme={theme}
+                  onToggle={() =>
+                    setTheme(theme === "light" ? "dark" : "light")
+                  }
+                />
               </div>
               <Pill>
                 <Bell className="size-3.5" />
-                {reminders.enabled ? `${reminders.cadenceMinutes} min reminders` : "Reminders off"}
+                {reminders.enabled
+                  ? `${reminders.cadenceMinutes} min reminders`
+                  : "Reminders off"}
               </Pill>
             </div>
           </div>
+
+          {legacyTimer && (
+            <section
+              aria-label="Recover browser timer"
+              className="sky-panel mb-5 p-4 sm:p-5"
+            >
+              <h2 className="font-semibold">Recover your running timer</h2>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                This browser has a timer from before server sync was enabled.
+                Recover it to keep tracking from its original start time.
+              </p>
+              <p className="mt-2 text-sm font-semibold">
+                {
+                  projects.find(
+                    (project) => project.id === legacyTimer.value.projectId,
+                  )?.name
+                }
+                {" · "}
+                {legacyTimer.value.task || "Unlabelled work"}
+              </p>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Started {formatLongDate(new Date(legacyTimer.value.startedAt))}{" "}
+                at {formatClock(new Date(legacyTimer.value.startedAt))}
+              </p>
+              {legacyTimer.value.notes && (
+                <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--muted)]">
+                  {legacyTimer.value.notes}
+                </p>
+              )}
+              <div className="mt-3">
+                <Button onClick={recoverLegacyTimer} disabled={recoveringTimer}>
+                  {recoveringTimer ? "Recovering timer…" : "Recover timer"}
+                </Button>
+              </div>
+            </section>
+          )}
 
           {activeView === "dashboard" && (
             <DashboardView
@@ -1147,16 +1758,19 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
           )}
 
           {activeView === "projects" && (
-            <ProjectsView
-              clients={clients}
-              entries={entries}
-              newProject={newProject}
-              projects={projects}
-              setNewProject={setNewProject}
-              addProject={addProject}
-              deleteProject={deleteProject}
-              updateProject={updateProject}
-            />
+            <>
+              <ProjectBudgets projects={projects} onChange={loadWorkspace} />
+              <ProjectsView
+                clients={clients}
+                entries={entries}
+                newProject={newProject}
+                projects={projects}
+                setNewProject={setNewProject}
+                addProject={addProject}
+                deleteProject={deleteProject}
+                updateProject={updateProject}
+              />
+            </>
           )}
 
           {activeView === "clients" && (
@@ -1185,13 +1799,15 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
             />
           )}
 
-          {activeView === "audit" && authState.data.organization.role === "admin" && (
-            <AuditLogView entries={auditLog} reload={loadAuditLog} />
-          )}
+          {activeView === "audit" &&
+            authState.data.organization.role === "admin" && (
+              <AuditLogView entries={auditLog} reload={loadAuditLog} />
+            )}
 
-          {activeView === "errors" && authState.data.organization.role === "admin" && (
-            <ErrorLogView entries={errorLog} reload={loadErrorLog} />
-          )}
+          {activeView === "errors" &&
+            authState.data.organization.role === "admin" && (
+              <ErrorLogView entries={errorLog} reload={loadErrorLog} />
+            )}
 
           {activeView === "board" && (
             <BoardView
@@ -1219,11 +1835,36 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
               setPeriod={setPeriod}
               totals={totals}
               deleteEntry={deleteEntry}
-              onCsv={() => exportCsv(filteredEntries, projects, periodRange)}
-              onPdf={() => exportPdf(filteredEntries, projects, periodRange, authState.data.user, authState.data.organization, showToast)}
+              onCsv={() =>
+                exportCsv(filteredEntries, projects, periodRange, showToast)
+              }
+              onPdf={() =>
+                exportPdf(
+                  filteredEntries,
+                  projects,
+                  periodRange,
+                  authState.data.user,
+                  authState.data.organization,
+                  showToast,
+                )
+              }
             />
           )}
 
+          {activeView === "planning" && (
+            <PlanningView projects={projects} isAdmin={isAdmin} />
+          )}
+          {activeView === "reports" && (
+            <ReportsView projects={projects} clients={clients} />
+          )}
+          {activeView === "billing" && (
+            <BillingView
+              projects={projects}
+              clients={clients}
+              isAdmin={isAdmin}
+            />
+          )}
+          {activeView === "automation" && <AutomationView isAdmin={isAdmin} />}
           {activeView === "settings" && (
             <SettingsView
               fyStartMonth={fyStartMonth}
@@ -1251,9 +1892,21 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
         </div>
       </main>
 
-      <MobileBottomNav activeView={activeView} items={mobileNavItems} onChange={setActiveView} />
-      <ToastStack toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
-      <ConfirmDialog confirm={confirmState} onClose={() => setConfirmState(null)} />
+      <MobileBottomNav
+        activeView={activeView}
+        items={mobileNavItems}
+        onChange={setActiveView}
+      />
+      <ToastStack
+        toasts={toasts}
+        onDismiss={(id) =>
+          setToasts((current) => current.filter((toast) => toast.id !== id))
+        }
+      />
+      <ConfirmDialog
+        confirm={confirmState}
+        onClose={() => setConfirmState(null)}
+      />
     </div>
   );
 }
@@ -1261,11 +1914,21 @@ export function SkyTimeWorkspace({ initialState }: { initialState: AuthState }) 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <img src="/skytime-mark.svg" alt="" className="size-11 rounded-2xl shadow-[0_10px_24px_color-mix(in_oklch,var(--accent)_20%,transparent)]" />
+      <img
+        src="/skytime-mark.svg"
+        alt=""
+        className="size-11 rounded-2xl shadow-[0_10px_24px_color-mix(in_oklch,var(--accent)_20%,transparent)]"
+      />
       {!compact && (
         <div>
-          <img src="/skytime-wordmark.svg" alt="SkyTime" className="h-7 w-auto" />
-          <p className="mt-1 text-xs text-[var(--muted)]">Timesheets that stay tidy.</p>
+          <img
+            src="/skytime-wordmark.svg"
+            alt="SkyTime"
+            className="h-7 w-auto"
+          />
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Timesheets that stay tidy.
+          </p>
         </div>
       )}
     </div>
@@ -1341,7 +2004,13 @@ function MobileBottomNav({
   );
 }
 
-function ThemeToggle({ onToggle, theme }: { onToggle: () => void; theme: ThemeMode }) {
+function ThemeToggle({
+  onToggle,
+  theme,
+}: {
+  onToggle: () => void;
+  theme: ThemeMode;
+}) {
   const Icon = theme === "light" ? Sun : Moon;
 
   return (
@@ -1353,12 +2022,20 @@ function ThemeToggle({ onToggle, theme }: { onToggle: () => void; theme: ThemeMo
       title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
     >
       <Icon className="size-4 text-[var(--accent-strong)]" aria-hidden />
-      <span className="hidden sm:inline">{theme === "light" ? "Light" : "Dark"}</span>
+      <span className="hidden sm:inline">
+        {theme === "light" ? "Light" : "Dark"}
+      </span>
     </button>
   );
 }
 
-function ToastStack({ onDismiss, toasts }: { onDismiss: (id: string) => void; toasts: ToastMessage[] }) {
+function ToastStack({
+  onDismiss,
+  toasts,
+}: {
+  onDismiss: (id: string) => void;
+  toasts: ToastMessage[];
+}) {
   return (
     <div
       className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] z-40 grid gap-2 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:w-[min(360px,calc(100vw-2rem))]"
@@ -1370,23 +2047,35 @@ function ToastStack({ onDismiss, toasts }: { onDismiss: (id: string) => void; to
           key={toast.id}
           className={cn(
             "flex items-start gap-3 rounded-2xl border bg-[var(--raised)] p-3 text-sm shadow-[var(--shadow)]",
-            toast.tone === "success" && "border-[color-mix(in_oklch,var(--success)_45%,var(--border))]",
-            toast.tone === "error" && "border-[color-mix(in_oklch,var(--error)_55%,var(--border))]",
-            toast.tone === "info" && "border-[color-mix(in_oklch,var(--accent)_38%,var(--border))]",
+            toast.tone === "success" &&
+              "border-[color-mix(in_oklch,var(--success)_45%,var(--border))]",
+            toast.tone === "error" &&
+              "border-[color-mix(in_oklch,var(--error)_55%,var(--border))]",
+            toast.tone === "info" &&
+              "border-[color-mix(in_oklch,var(--accent)_38%,var(--border))]",
           )}
         >
           <span
             className={cn(
               "mt-0.5 grid size-6 shrink-0 place-items-center rounded-full",
-              toast.tone === "success" && "bg-[var(--success-soft)] text-[var(--success)]",
-              toast.tone === "error" && "bg-[var(--error-soft)] text-[var(--error)]",
-              toast.tone === "info" && "bg-[var(--accent-subtle)] text-[var(--accent-strong)]",
+              toast.tone === "success" &&
+                "bg-[var(--success-soft)] text-[var(--success)]",
+              toast.tone === "error" &&
+                "bg-[var(--error-soft)] text-[var(--error)]",
+              toast.tone === "info" &&
+                "bg-[var(--accent-subtle)] text-[var(--accent-strong)]",
             )}
             aria-hidden
           >
-            {toast.tone === "error" ? <AlertTriangle className="size-3.5" /> : <Check className="size-3.5" />}
+            {toast.tone === "error" ? (
+              <AlertTriangle className="size-3.5" />
+            ) : (
+              <Check className="size-3.5" />
+            )}
           </span>
-          <p className="min-w-0 flex-1 font-semibold text-[var(--text)]">{toast.message}</p>
+          <p className="min-w-0 flex-1 font-semibold text-[var(--text)]">
+            {toast.message}
+          </p>
           <button
             type="button"
             onClick={() => onDismiss(toast.id)}
@@ -1401,7 +2090,13 @@ function ToastStack({ onDismiss, toasts }: { onDismiss: (id: string) => void; to
   );
 }
 
-function ConfirmDialog({ confirm, onClose }: { confirm: ConfirmState | null; onClose: () => void }) {
+function ConfirmDialog({
+  confirm,
+  onClose,
+}: {
+  confirm: ConfirmState | null;
+  onClose: () => void;
+}) {
   const [isPending, setIsPending] = useState(false);
 
   useEffect(() => {
@@ -1411,7 +2106,10 @@ function ConfirmDialog({ confirm, onClose }: { confirm: ConfirmState | null; onC
   if (!confirm) return null;
 
   return (
-    <div className="fixed inset-0 z-50 grid items-end bg-[color-mix(in_oklch,var(--background)_72%,transparent)] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-4 backdrop-blur-sm sm:place-items-center sm:p-4" role="presentation">
+    <div
+      className="fixed inset-0 z-50 grid items-end bg-[color-mix(in_oklch,var(--background)_72%,transparent)] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-4 backdrop-blur-sm sm:place-items-center sm:p-4"
+      role="presentation"
+    >
       <section
         className="sky-panel max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto p-5"
         role="dialog"
@@ -1424,8 +2122,15 @@ function ConfirmDialog({ confirm, onClose }: { confirm: ConfirmState | null; onC
             <AlertTriangle className="size-5" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="confirm-title" className="text-lg font-semibold">{confirm.title}</h2>
-            <p id="confirm-message" className="mt-1 text-sm text-[var(--muted)]">{confirm.message}</p>
+            <h2 id="confirm-title" className="text-lg font-semibold">
+              {confirm.title}
+            </h2>
+            <p
+              id="confirm-message"
+              className="mt-1 text-sm text-[var(--muted)]"
+            >
+              {confirm.message}
+            </p>
           </div>
           <button
             type="button"
@@ -1437,7 +2142,9 @@ function ConfirmDialog({ confirm, onClose }: { confirm: ConfirmState | null; onC
           </button>
         </div>
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button tone="neutral" onClick={onClose}>Cancel</Button>
+          <Button tone="neutral" onClick={onClose}>
+            Cancel
+          </Button>
           <Button
             tone="danger"
             onClick={() => {
@@ -1487,7 +2194,9 @@ function AuthScreen({
       </div>
       <section className="sky-panel w-full max-w-md p-6">
         <Brand />
-        <p className="mt-6 text-sm text-[var(--muted)]">Sign in to your organization or create a new SkyTime workspace.</p>
+        <p className="mt-6 text-sm text-[var(--muted)]">
+          Sign in to your organization or create a new SkyTime workspace.
+        </p>
         <div className="mt-6 flex rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-1">
           {(["signin", "signup"] as const).map((mode) => (
             <button
@@ -1496,7 +2205,9 @@ function AuthScreen({
               onClick={() => setAuthForm((current) => ({ ...current, mode }))}
               className={cn(
                 "h-10 flex-1 rounded-xl px-3 text-sm font-semibold transition-colors focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]",
-                authForm.mode === mode ? "bg-[var(--raised)] text-[var(--text)] shadow-sm" : "text-[var(--muted)]",
+                authForm.mode === mode
+                  ? "bg-[var(--raised)] text-[var(--text)] shadow-sm"
+                  : "text-[var(--muted)]",
               )}
             >
               {mode === "signin" ? "Sign in" : "Create account"}
@@ -1506,37 +2217,78 @@ function AuthScreen({
         <div className="mt-5 grid gap-3">
           {authForm.mode === "signup" && (
             <Field label="Name">
-              <Input value={authForm.name} onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))} />
+              <Input
+                value={authForm.name}
+                onChange={(event) =>
+                  setAuthForm((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+              />
             </Field>
           )}
           <Field label="Email">
-            <Input type="email" value={authForm.email} onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))} />
+            <Input
+              type="email"
+              value={authForm.email}
+              onChange={(event) =>
+                setAuthForm((current) => ({
+                  ...current,
+                  email: event.target.value,
+                }))
+              }
+            />
           </Field>
           <Field label="Password">
-            <Input type="password" value={authForm.password} onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))} />
+            <Input
+              type="password"
+              value={authForm.password}
+              onChange={(event) =>
+                setAuthForm((current) => ({
+                  ...current,
+                  password: event.target.value,
+                }))
+              }
+            />
           </Field>
           {authForm.mode === "signup" && (
             <Field label="Confirm password">
               <Input
                 type="password"
                 value={authForm.confirmPassword}
-                onChange={(event) => setAuthForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                onChange={(event) =>
+                  setAuthForm((current) => ({
+                    ...current,
+                    confirmPassword: event.target.value,
+                  }))
+                }
               />
             </Field>
           )}
           {mfa.signInRequired && (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="size-5 text-[var(--accent-strong)]" aria-hidden />
+                <ShieldCheck
+                  className="size-5 text-[var(--accent-strong)]"
+                  aria-hidden
+                />
                 <p className="font-semibold">Verify your sign in</p>
               </div>
-              <p className="mt-1 text-sm text-[var(--muted)]">Enter your authenticator code or use a backup code.</p>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Enter your authenticator code or use a backup code.
+              </p>
               <div className="mt-4 grid gap-3">
                 {mfa.signInUseBackupCode ? (
                   <Field label="Backup code">
                     <Input
                       value={mfa.signInBackupCode}
-                      onChange={(event) => setMfa((current) => ({ ...current, signInBackupCode: event.target.value }))}
+                      onChange={(event) =>
+                        setMfa((current) => ({
+                          ...current,
+                          signInBackupCode: event.target.value,
+                        }))
+                      }
                     />
                   </Field>
                 ) : (
@@ -1545,21 +2297,35 @@ function AuthScreen({
                       inputMode="numeric"
                       autoComplete="one-time-code"
                       value={mfa.signInCode}
-                      onChange={(event) => setMfa((current) => ({ ...current, signInCode: event.target.value }))}
+                      onChange={(event) =>
+                        setMfa((current) => ({
+                          ...current,
+                          signInCode: event.target.value,
+                        }))
+                      }
                     />
                   </Field>
                 )}
                 <Toggle
                   checked={mfa.trustDevice}
                   label="Trust this device for 30 days"
-                  onChange={(trustDevice) => setMfa((current) => ({ ...current, trustDevice }))}
+                  onChange={(trustDevice) =>
+                    setMfa((current) => ({ ...current, trustDevice }))
+                  }
                 />
                 <button
                   type="button"
                   className="justify-self-start text-sm font-semibold text-[var(--accent-strong)]"
-                  onClick={() => setMfa((current) => ({ ...current, signInUseBackupCode: !current.signInUseBackupCode }))}
+                  onClick={() =>
+                    setMfa((current) => ({
+                      ...current,
+                      signInUseBackupCode: !current.signInUseBackupCode,
+                    }))
+                  }
                 >
-                  {mfa.signInUseBackupCode ? "Use authenticator code" : "Use backup code"}
+                  {mfa.signInUseBackupCode
+                    ? "Use authenticator code"
+                    : "Use backup code"}
                 </button>
                 <Button onClick={verifyMfaSignIn}>
                   <ShieldCheck className="size-4" />
@@ -1568,11 +2334,19 @@ function AuthScreen({
               </div>
             </div>
           )}
-          {loadError && <p className="rounded-xl border border-[var(--error)] bg-[var(--error-soft)] p-3 text-sm text-[var(--error)]">{loadError}</p>}
+          {loadError && (
+            <p className="rounded-xl border border-[var(--error)] bg-[var(--error-soft)] p-3 text-sm text-[var(--error)]">
+              {loadError}
+            </p>
+          )}
           {!mfa.signInRequired && (
             <Button onClick={submitAuth}>
               <Clock3 className="size-4" />
-              {isPending ? "Working..." : authForm.mode === "signin" ? "Sign in" : "Create account"}
+              {isPending
+                ? "Working..."
+                : authForm.mode === "signin"
+                  ? "Sign in"
+                  : "Create account"}
             </Button>
           )}
         </div>
@@ -1609,13 +2383,26 @@ function OrganizationOnboarding({
         <Brand />
         <h1 className="mt-6 text-lg font-semibold">Create your organization</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
-          {userEmail} will become the admin. You can invite teammates after the workspace opens.
+          {userEmail} will become the admin. You can invite teammates after the
+          workspace opens.
         </p>
         <div className="mt-5 grid gap-3">
           <Field label="Organization name">
-            <Input value={authForm.organizationName} onChange={(event) => setAuthForm((current) => ({ ...current, organizationName: event.target.value }))} />
+            <Input
+              value={authForm.organizationName}
+              onChange={(event) =>
+                setAuthForm((current) => ({
+                  ...current,
+                  organizationName: event.target.value,
+                }))
+              }
+            />
           </Field>
-          {loadError && <p className="rounded-xl border border-[var(--error)] bg-[var(--error-soft)] p-3 text-sm text-[var(--error)]">{loadError}</p>}
+          {loadError && (
+            <p className="rounded-xl border border-[var(--error)] bg-[var(--error-soft)] p-3 text-sm text-[var(--error)]">
+              {loadError}
+            </p>
+          )}
           <Button onClick={submit}>
             <BriefcaseBusiness className="size-4" />
             {isPending ? "Creating..." : "Create organization"}
@@ -1641,8 +2428,12 @@ function StatCard({
     <article className="sky-panel p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</p>
-          <p className="mt-2 truncate text-2xl font-bold leading-none tracking-tight tabular">{value}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
+            {label}
+          </p>
+          <p className="mt-2 truncate text-2xl font-bold leading-none tracking-tight tabular">
+            {value}
+          </p>
         </div>
         <div className="grid size-10 place-items-center rounded-2xl bg-[var(--accent-subtle)] text-[var(--accent-strong)]">
           <Icon className="size-5" aria-hidden />
@@ -1668,7 +2459,9 @@ function EmptyState({
         <Icon className="size-6" aria-hidden />
       </div>
       <h3 className="mt-4 font-semibold">{title}</h3>
-      <p className="mx-auto mt-2 max-w-sm text-sm text-[var(--muted)]">{message}</p>
+      <p className="mx-auto mt-2 max-w-sm text-sm text-[var(--muted)]">
+        {message}
+      </p>
     </div>
   );
 }
@@ -1702,42 +2495,86 @@ function DashboardView({
   addManualEntry: () => void;
   deleteEntry: (id: string) => void;
 }) {
-  const weekRange = getPeriodRange("week", 7, toDateInput(new Date()), toDateInput(new Date()));
+  const weekRange = getPeriodRange(
+    "week",
+    7,
+    toDateInput(new Date()),
+    toDateInput(new Date()),
+  );
   const weekMs = entries
-    .filter((entry) => isInsideRange(new Date(entry.startedAt), weekRange.start, weekRange.end))
+    .filter((entry) =>
+      isInsideRange(new Date(entry.startedAt), weekRange.start, weekRange.end),
+    )
     .reduce((sum, entry) => sum + entry.durationMs, 0);
-  const billableMs = entries.filter((entry) => entry.billable).reduce((sum, entry) => sum + entry.durationMs, 0);
+  const billableMs = entries
+    .filter((entry) => entry.billable)
+    .reduce((sum, entry) => sum + entry.durationMs, 0);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_390px] xl:gap-5">
       <div className="grid gap-3 sm:grid-cols-2 xl:col-span-2 xl:grid-cols-4">
-        <StatCard icon={Clock3} label="Today" value={formatDuration(todayMs + elapsedMs)} detail="Tracked so far" />
-        <StatCard icon={CalendarRange} label="This week" value={formatDuration(weekMs + elapsedMs)} detail="Across all projects" />
-        <StatCard icon={BriefcaseBusiness} label="Billable" value={formatDuration(billableMs + (timer.billable ? elapsedMs : 0))} detail="Ready for timesheets" />
-        <StatCard icon={Play} label="Active project" value={activeProject?.name ?? "None"} detail={timer.running ? "Timer running" : "Ready to start"} />
+        <StatCard
+          icon={Clock3}
+          label="Today"
+          value={formatDuration(todayMs + elapsedMs)}
+          detail="Tracked so far"
+        />
+        <StatCard
+          icon={CalendarRange}
+          label="This week"
+          value={formatDuration(weekMs + elapsedMs)}
+          detail="Across all projects"
+        />
+        <StatCard
+          icon={BriefcaseBusiness}
+          label="Billable"
+          value={formatDuration(billableMs + (timer.billable ? elapsedMs : 0))}
+          detail="Ready for timesheets"
+        />
+        <StatCard
+          icon={Play}
+          label="Active project"
+          value={activeProject?.name ?? "None"}
+          detail={timer.running ? "Timer running" : "Ready to start"}
+        />
       </div>
 
       <section className="timer-panel p-4 sm:p-6" data-running={timer.running}>
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--accent-strong)]">Current timer</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--accent-strong)]">
+              Current timer
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-              <p className="text-5xl font-bold leading-none tracking-tight tabular sm:text-7xl">{formatDuration(elapsedMs)}</p>
+              <p className="text-5xl font-bold leading-none tracking-tight tabular sm:text-7xl">
+                {formatDuration(elapsedMs)}
+              </p>
               <Pill tone={timer.running ? "accent" : "neutral"}>
-                {timer.running ? <Pause className="size-3.5" /> : <Circle className="size-3.5" />}
+                {timer.running ? (
+                  <Pause className="size-3.5" />
+                ) : (
+                  <Circle className="size-3.5" />
+                )}
                 {timer.running ? "Running" : "Ready"}
               </Pill>
             </div>
           </div>
           <div className="rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--raised)_78%,transparent)] px-4 py-3 text-sm shadow-sm">
             <span className="text-[var(--muted)]">Today total</span>
-            <strong className="ml-2 tabular">{formatDuration(todayMs + elapsedMs)}</strong>
+            <strong className="ml-2 tabular">
+              {formatDuration(todayMs + elapsedMs)}
+            </strong>
           </div>
         </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-[1fr_1fr]">
           <Field label="Project">
-            <Select value={timer.projectId} onChange={(value) => setTimer((current) => ({ ...current, projectId: value }))}>
+            <Select
+              value={timer.projectId}
+              onChange={(value) =>
+                setTimer((current) => ({ ...current, projectId: value }))
+              }
+            >
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
@@ -1749,14 +2586,24 @@ function DashboardView({
             <Input
               value={timer.task}
               placeholder="What are you working on?"
-              onChange={(event) => setTimer((current) => ({ ...current, task: event.target.value }))}
+              onChange={(event) =>
+                setTimer((current) => ({
+                  ...current,
+                  task: event.target.value,
+                }))
+              }
             />
           </Field>
           <Field className="md:col-span-2" label="Notes">
             <Input
               value={timer.notes}
               placeholder="Optional note for the timesheet"
-              onChange={(event) => setTimer((current) => ({ ...current, notes: event.target.value }))}
+              onChange={(event) =>
+                setTimer((current) => ({
+                  ...current,
+                  notes: event.target.value,
+                }))
+              }
             />
           </Field>
         </div>
@@ -1765,10 +2612,19 @@ function DashboardView({
           <Toggle
             checked={timer.billable}
             label="Billable"
-            onChange={(checked) => setTimer((current) => ({ ...current, billable: checked }))}
+            onChange={(checked) =>
+              setTimer((current) => ({ ...current, billable: checked }))
+            }
           />
-          <Button tone={timer.running ? "neutral" : "primary"} onClick={timer.running ? stopTimer : startTimer}>
-            {timer.running ? <TimerReset className="size-4" /> : <Play className="size-4" />}
+          <Button
+            tone={timer.running ? "neutral" : "primary"}
+            onClick={timer.running ? stopTimer : startTimer}
+          >
+            {timer.running ? (
+              <TimerReset className="size-4" />
+            ) : (
+              <Play className="size-4" />
+            )}
             {timer.running ? "Stop and save" : "Start timer"}
           </Button>
         </div>
@@ -1777,7 +2633,10 @@ function DashboardView({
           <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--raised)_72%,transparent)] p-4 shadow-sm">
             <p className="text-sm font-semibold">{activeProject.name}</p>
             <p className="text-sm text-[var(--muted)]">
-              {activeProject.client}, {activeProject.rate > 0 ? `${formatCurrency(activeProject.rate)}/hr ex GST` : "Non-billable"}
+              {activeProject.client},{" "}
+              {activeProject.rate > 0
+                ? `${formatCurrency(activeProject.rate)}/hr ex GST`
+                : "Non-billable"}
             </p>
           </div>
         )}
@@ -1790,7 +2649,12 @@ function DashboardView({
         </div>
         <div className="mt-4 grid gap-3">
           <Field label="Project">
-            <Select value={manualEntry.projectId} onChange={(value) => setManualEntry((current) => ({ ...current, projectId: value }))}>
+            <Select
+              value={manualEntry.projectId}
+              onChange={(value) =>
+                setManualEntry((current) => ({ ...current, projectId: value }))
+              }
+            >
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
@@ -1799,17 +2663,49 @@ function DashboardView({
             </Select>
           </Field>
           <Field label="Task">
-            <Input value={manualEntry.task} onChange={(event) => setManualEntry((current) => ({ ...current, task: event.target.value }))} />
+            <Input
+              value={manualEntry.task}
+              onChange={(event) =>
+                setManualEntry((current) => ({
+                  ...current,
+                  task: event.target.value,
+                }))
+              }
+            />
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Date">
-              <Input type="date" value={manualEntry.date} onChange={(event) => setManualEntry((current) => ({ ...current, date: event.target.value }))} />
+              <Input
+                type="date"
+                value={manualEntry.date}
+                onChange={(event) =>
+                  setManualEntry((current) => ({
+                    ...current,
+                    date: event.target.value,
+                  }))
+                }
+              />
             </Field>
             <Field label="Hours">
-              <Input inputMode="decimal" value={manualEntry.duration} onChange={(event) => setManualEntry((current) => ({ ...current, duration: event.target.value }))} />
+              <Input
+                inputMode="decimal"
+                value={manualEntry.duration}
+                onChange={(event) =>
+                  setManualEntry((current) => ({
+                    ...current,
+                    duration: event.target.value,
+                  }))
+                }
+              />
             </Field>
           </div>
-          <Toggle checked={manualEntry.billable} label="Billable entry" onChange={(checked) => setManualEntry((current) => ({ ...current, billable: checked }))} />
+          <Toggle
+            checked={manualEntry.billable}
+            label="Billable entry"
+            onChange={(checked) =>
+              setManualEntry((current) => ({ ...current, billable: checked }))
+            }
+          />
           <Button onClick={addManualEntry} tone="neutral">
             <Plus className="size-4" />
             Add entry
@@ -1818,8 +2714,15 @@ function DashboardView({
       </section>
 
       <section className="content-auto xl:col-span-2">
-        <SectionHeader title="Recent entries" action={`${entries.length} saved`} />
-        <EntryTable entries={entries.slice(0, 6)} projects={projects} onDelete={deleteEntry} />
+        <SectionHeader
+          title="Recent entries"
+          action={`${entries.length} saved`}
+        />
+        <EntryTable
+          entries={entries.slice(0, 6)}
+          projects={projects}
+          onDelete={deleteEntry}
+        />
       </section>
     </div>
   );
@@ -1849,12 +2752,23 @@ function ProjectsView({
     <div className="grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
       <section className="sky-panel p-4 sm:p-5">
         <div className="flex items-center gap-2">
-          <FolderPlus className="size-5 text-[var(--accent-strong)]" aria-hidden />
+          <FolderPlus
+            className="size-5 text-[var(--accent-strong)]"
+            aria-hidden
+          />
           <h2 className="text-lg font-semibold">Create project</h2>
         </div>
         <div className="mt-4 grid gap-3">
           <Field label="Project name">
-            <Input value={newProject.name} onChange={(event) => setNewProject((current) => ({ ...current, name: event.target.value }))} />
+            <Input
+              value={newProject.name}
+              onChange={(event) =>
+                setNewProject((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
+              }
+            />
           </Field>
           <Field label="Client">
             {activeClients.length > 0 ? (
@@ -1862,12 +2776,17 @@ function ProjectsView({
                 value={newProject.clientId}
                 onChange={(event) => {
                   const id = event.target.value;
-                  const match = activeClients.find((client) => client.id === id);
+                  const match = activeClients.find(
+                    (client) => client.id === id,
+                  );
                   setNewProject((current) => ({
                     ...current,
                     clientId: id,
                     client: match?.name ?? current.client,
-                    rate: match && match.defaultRate > 0 ? String(match.defaultRate) : current.rate,
+                    rate:
+                      match && match.defaultRate > 0
+                        ? String(match.defaultRate)
+                        : current.rate,
                   }));
                 }}
                 className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--raised)] px-3 text-sm text-[var(--text)] focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]"
@@ -1883,14 +2802,27 @@ function ProjectsView({
               <Input
                 value={newProject.client}
                 onChange={(event) =>
-                  setNewProject((current) => ({ ...current, client: event.target.value, clientId: "" }))
+                  setNewProject((current) => ({
+                    ...current,
+                    client: event.target.value,
+                    clientId: "",
+                  }))
                 }
                 placeholder="Free-form client name"
               />
             )}
           </Field>
           <Field label="Hourly rate">
-            <Input inputMode="decimal" value={newProject.rate} onChange={(event) => setNewProject((current) => ({ ...current, rate: event.target.value }))} />
+            <Input
+              inputMode="decimal"
+              value={newProject.rate}
+              onChange={(event) =>
+                setNewProject((current) => ({
+                  ...current,
+                  rate: event.target.value,
+                }))
+              }
+            />
           </Field>
           <Button onClick={addProject}>
             <Plus className="size-4" />
@@ -1910,27 +2842,44 @@ function ProjectsView({
             />
           )}
           {projects.map((project) => {
-            const projectMs = entries.filter((entry) => entry.projectId === project.id).reduce((sum, entry) => sum + entry.durationMs, 0);
+            const projectMs = entries
+              .filter((entry) => entry.projectId === project.id)
+              .reduce((sum, entry) => sum + entry.durationMs, 0);
             return (
               <article key={project.id} className="sky-panel p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="size-2.5 rounded-full" style={{ background: project.color }} />
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ background: project.color }}
+                      />
                       <h3 className="font-semibold">{project.name}</h3>
                     </div>
-                    <p className="mt-1 text-sm text-[var(--muted)]">{project.client}</p>
+                    <p className="mt-1 text-sm text-[var(--muted)]">
+                      {project.client}
+                    </p>
                   </div>
-                  <Pill tone={project.status === "Active" ? "success" : "warning"}>{project.status}</Pill>
+                  <Pill
+                    tone={project.status === "Active" ? "success" : "warning"}
+                  >
+                    {project.status}
+                  </Pill>
                 </div>
                 <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <dt className="text-[var(--muted)]">Tracked</dt>
-                    <dd className="mt-1 font-semibold tabular">{formatDuration(projectMs)}</dd>
+                    <dd className="mt-1 font-semibold tabular">
+                      {formatDuration(projectMs)}
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-[var(--muted)]">Rate</dt>
-                    <dd className="mt-1 font-semibold tabular">{project.rate > 0 ? `${formatCurrency(project.rate)}/hr ex GST` : "Internal"}</dd>
+                    <dd className="mt-1 font-semibold tabular">
+                      {project.rate > 0
+                        ? `${formatCurrency(project.rate)}/hr ex GST`
+                        : "Internal"}
+                    </dd>
                   </div>
                 </dl>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -1938,14 +2887,18 @@ function ProjectsView({
                     tone="neutral"
                     onClick={() =>
                       updateProject(project.id, {
-                        status: project.status === "Active" ? "Paused" : "Active",
+                        status:
+                          project.status === "Active" ? "Paused" : "Active",
                       })
                     }
                   >
                     <Edit3 className="size-4" />
                     {project.status === "Active" ? "Pause" : "Activate"}
                   </Button>
-                  <Button tone="neutral" onClick={() => deleteProject(project.id)}>
+                  <Button
+                    tone="neutral"
+                    onClick={() => deleteProject(project.id)}
+                  >
                     <Trash2 className="size-4" />
                     Delete
                   </Button>
@@ -1982,7 +2935,12 @@ function BoardView({
         <SectionHeader title="Task board" action="Drag tasks between columns" />
         <div className="grid gap-3 md:grid-cols-[1fr_1fr_120px_auto]">
           <Field label="Project">
-            <Select value={taskForm.projectId} onChange={(value) => setTaskForm((current) => ({ ...current, projectId: value }))}>
+            <Select
+              value={taskForm.projectId}
+              onChange={(value) =>
+                setTaskForm((current) => ({ ...current, projectId: value }))
+              }
+            >
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
@@ -1991,10 +2949,27 @@ function BoardView({
             </Select>
           </Field>
           <Field label="Task">
-            <Input value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} />
+            <Input
+              value={taskForm.title}
+              onChange={(event) =>
+                setTaskForm((current) => ({
+                  ...current,
+                  title: event.target.value,
+                }))
+              }
+            />
           </Field>
           <Field label="Estimate">
-            <Input inputMode="decimal" value={taskForm.estimateHours} onChange={(event) => setTaskForm((current) => ({ ...current, estimateHours: event.target.value }))} />
+            <Input
+              inputMode="decimal"
+              value={taskForm.estimateHours}
+              onChange={(event) =>
+                setTaskForm((current) => ({
+                  ...current,
+                  estimateHours: event.target.value,
+                }))
+              }
+            />
           </Field>
           <div className="flex items-end">
             <Button onClick={addTask}>
@@ -2007,7 +2982,13 @@ function BoardView({
       <DndContext onDragEnd={onDragEnd}>
         <div className="kanban-scroll grid auto-cols-[minmax(17rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-3 lg:grid-flow-row lg:grid-cols-4 lg:overflow-visible lg:pb-0">
           {columns.map((column) => (
-            <BoardColumn key={column} column={column} tasks={tasks.filter((task) => task.status === column)} projects={projects} deleteTask={deleteTask} />
+            <BoardColumn
+              key={column}
+              column={column}
+              tasks={tasks.filter((task) => task.status === column)}
+              projects={projects}
+              deleteTask={deleteTask}
+            />
           ))}
         </div>
       </DndContext>
@@ -2015,7 +2996,17 @@ function BoardView({
   );
 }
 
-function BoardColumn({ column, deleteTask, projects, tasks }: { column: BoardStatus; deleteTask: (id: string) => void; projects: Project[]; tasks: BoardTask[] }) {
+function BoardColumn({
+  column,
+  deleteTask,
+  projects,
+  tasks,
+}: {
+  column: BoardStatus;
+  deleteTask: (id: string) => void;
+  projects: Project[];
+  tasks: BoardTask[];
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: column });
 
   return (
@@ -2037,16 +3028,32 @@ function BoardColumn({ column, deleteTask, projects, tasks }: { column: BoardSta
           </div>
         )}
         {tasks.map((task) => (
-          <BoardCard key={task.id} task={task} project={projects.find((project) => project.id === task.projectId)} deleteTask={deleteTask} />
+          <BoardCard
+            key={task.id}
+            task={task}
+            project={projects.find((project) => project.id === task.projectId)}
+            deleteTask={deleteTask}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function BoardCard({ deleteTask, project, task }: { deleteTask: (id: string) => void; project?: Project; task: BoardTask }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
-  const style: CSSProperties = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : {};
+function BoardCard({
+  deleteTask,
+  project,
+  task,
+}: {
+  deleteTask: (id: string) => void;
+  project?: Project;
+  task: BoardTask;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({ id: task.id });
+  const style: CSSProperties = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : {};
 
   return (
     <article
@@ -2076,7 +3083,10 @@ function BoardCard({ deleteTask, project, task }: { deleteTask: (id: string) => 
       </div>
       <div className="mt-3 flex items-center justify-between gap-2 text-xs text-[var(--muted)]">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="size-2 shrink-0 rounded-full" style={{ background: project?.color ?? "var(--border)" }} />
+          <span
+            className="size-2 shrink-0 rounded-full"
+            style={{ background: project?.color ?? "var(--border)" }}
+          />
           <span className="truncate">{project?.name ?? "Project"}</span>
         </span>
         <span className="tabular">{task.estimateHours}h</span>
@@ -2116,9 +3126,15 @@ function TimesheetsView({
   onCsv: () => void;
   onPdf: () => void;
 }) {
-  const subtotalExGst = totals.reduce((sum, total) => sum + total.amountExGst, 0);
+  const subtotalExGst = totals.reduce(
+    (sum, total) => sum + total.amountExGst,
+    0,
+  );
   const gstTotal = totals.reduce((sum, total) => sum + total.gst, 0);
-  const totalIncGst = totals.reduce((sum, total) => sum + total.amountIncGst, 0);
+  const totalIncGst = totals.reduce(
+    (sum, total) => sum + total.amountIncGst,
+    0,
+  );
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -2144,14 +3160,16 @@ function TimesheetsView({
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            {([
-              ["today", "Today"],
-              ["week", "Week"],
-              ["month", "Month"],
-              ["fy", "FY"],
-              ["annual", "Annual"],
-              ["custom", "Custom"],
-            ] as const).map(([value, label]) => (
+            {(
+              [
+                ["today", "Today"],
+                ["week", "Week"],
+                ["month", "Month"],
+                ["fy", "FY"],
+                ["annual", "Annual"],
+                ["custom", "Custom"],
+              ] as const
+            ).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
@@ -2171,37 +3189,63 @@ function TimesheetsView({
           {period === "custom" && (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <Field label="Start">
-                <Input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
+                <Input
+                  type="date"
+                  value={customStart}
+                  onChange={(event) => setCustomStart(event.target.value)}
+                />
               </Field>
               <Field label="End">
-                <Input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
+                <Input
+                  type="date"
+                  value={customEnd}
+                  onChange={(event) => setCustomEnd(event.target.value)}
+                />
               </Field>
             </div>
           )}
 
           <div className="mt-5">
-            <EntryTable entries={entries} projects={projects} onDelete={deleteEntry} />
+            <EntryTable
+              entries={entries}
+              projects={projects}
+              onDelete={deleteEntry}
+            />
           </div>
         </div>
       </section>
 
       <aside className="space-y-4">
         <section className="timer-panel p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Period total</p>
-          <p className="mt-2 text-4xl font-bold tabular">{formatDuration(entries.reduce((sum, entry) => sum + entry.durationMs, 0))}</p>
-          <p className="mt-2 text-sm text-[var(--muted)]">FY starts in {monthName(fyStartMonth)}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+            Period total
+          </p>
+          <p className="mt-2 text-4xl font-bold tabular">
+            {formatDuration(
+              entries.reduce((sum, entry) => sum + entry.durationMs, 0),
+            )}
+          </p>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            FY starts in {monthName(fyStartMonth)}
+          </p>
           <dl className="mt-4 grid gap-2 rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--raised)_68%,transparent)] p-3 text-sm">
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--muted)]">Ex GST</dt>
-              <dd className="font-semibold tabular">{formatCurrency(subtotalExGst)}</dd>
+              <dd className="font-semibold tabular">
+                {formatCurrency(subtotalExGst)}
+              </dd>
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-[var(--muted)]">{AU_GST_LABEL}</dt>
-              <dd className="font-semibold tabular">{formatCurrency(gstTotal)}</dd>
+              <dd className="font-semibold tabular">
+                {formatCurrency(gstTotal)}
+              </dd>
             </div>
             <div className="flex justify-between gap-3 border-t border-[var(--border)] pt-2">
               <dt className="font-semibold">Inc GST</dt>
-              <dd className="font-bold tabular">{formatCurrency(totalIncGst)}</dd>
+              <dd className="font-bold tabular">
+                {formatCurrency(totalIncGst)}
+              </dd>
             </div>
           </dl>
         </section>
@@ -2215,16 +3259,23 @@ function TimesheetsView({
               </p>
             )}
             {totals.map((total) => (
-              <div key={total.project.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+              <div
+                key={total.project.id}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-semibold">{total.project.name}</p>
-                  <span className="tabular">{formatDuration(total.durationMs)}</span>
+                  <span className="tabular">
+                    {formatDuration(total.durationMs)}
+                  </span>
                 </div>
                 <p className="mt-1 text-sm text-[var(--muted)] tabular">
-                  Billable {formatDuration(total.billableMs)}, {formatCurrency(total.amountExGst)} ex GST
+                  Billable {formatDuration(total.billableMs)},{" "}
+                  {formatCurrency(total.amountExGst)} ex GST
                 </p>
                 <p className="mt-1 text-xs text-[var(--muted)] tabular">
-                  GST {formatCurrency(total.gst)}, total {formatCurrency(total.amountIncGst)}
+                  GST {formatCurrency(total.gst)}, total{" "}
+                  {formatCurrency(total.amountIncGst)}
                 </p>
               </div>
             ))}
@@ -2263,7 +3314,10 @@ function SettingsView({
   regenerateBackupCodes: () => void;
   requestNotifications: () => void;
   sendReminder: () => void;
-  saveSettings: (settings: { reminders?: ReminderSettings; fyStartMonth?: number }) => void;
+  saveSettings: (settings: {
+    reminders?: ReminderSettings;
+    fyStartMonth?: number;
+  }) => void;
   setFyStartMonth: (value: number) => void;
   setMfa: Dispatch<SetStateAction<MfaState>>;
   setReminders: Dispatch<SetStateAction<ReminderSettings>>;
@@ -2271,7 +3325,9 @@ function SettingsView({
   organization: WorkspacePayload["organization"];
   invites: OrganizationInvite[];
   inviteForm: { email: string; role: "admin" | "member" };
-  setInviteForm: Dispatch<SetStateAction<{ email: string; role: "admin" | "member" }>>;
+  setInviteForm: Dispatch<
+    SetStateAction<{ email: string; role: "admin" | "member" }>
+  >;
   createInvite: () => void;
   revokeInvite: (id: string) => void;
   verifyMfaSetup: () => void;
@@ -2283,20 +3339,41 @@ function SettingsView({
       <section className="sky-panel p-4 sm:p-5 xl:col-span-2">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Organization</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+              Organization
+            </p>
             <h2 className="mt-1 text-lg font-semibold">{organization.name}</h2>
           </div>
-          <Pill tone={organization.role === "admin" ? "accent" : "neutral"}>{organization.role}</Pill>
+          <Pill tone={organization.role === "admin" ? "accent" : "neutral"}>
+            {organization.role}
+          </Pill>
         </div>
 
         {organization.role === "admin" && (
           <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,380px)_1fr]">
             <div className="grid gap-3">
               <Field label="Invite email">
-                <Input type="email" value={inviteForm.email} onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))} />
+                <Input
+                  type="email"
+                  value={inviteForm.email}
+                  onChange={(event) =>
+                    setInviteForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                />
               </Field>
               <Field label="Role">
-                <Select value={inviteForm.role} onChange={(value) => setInviteForm((current) => ({ ...current, role: value === "admin" ? "admin" : "member" }))}>
+                <Select
+                  value={inviteForm.role}
+                  onChange={(value) =>
+                    setInviteForm((current) => ({
+                      ...current,
+                      role: value === "admin" ? "admin" : "member",
+                    }))
+                  }
+                >
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
                 </Select>
@@ -2307,15 +3384,28 @@ function SettingsView({
               </Button>
             </div>
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]">
-              {invites.length === 0 && <p className="p-4 text-sm text-[var(--muted)]">No invites yet. Add someone by email to bring them into this organization.</p>}
+              {invites.length === 0 && (
+                <p className="p-4 text-sm text-[var(--muted)]">
+                  No invites yet. Add someone by email to bring them into this
+                  organization.
+                </p>
+              )}
               {invites.map((invite) => (
-                <div key={invite.id} className="flex flex-col gap-3 border-t border-[var(--border)] p-3 first:border-t-0 sm:flex-row sm:items-center sm:justify-between">
+                <div
+                  key={invite.id}
+                  className="flex flex-col gap-3 border-t border-[var(--border)] p-3 first:border-t-0 sm:flex-row sm:items-center sm:justify-between"
+                >
                   <div>
                     <p className="font-semibold">{invite.email}</p>
-                    <p className="text-sm text-[var(--muted)]">{invite.role}, {invite.status}</p>
+                    <p className="text-sm text-[var(--muted)]">
+                      {invite.role}, {invite.status}
+                    </p>
                   </div>
                   {invite.status === "pending" && (
-                    <Button tone="neutral" onClick={() => revokeInvite(invite.id)}>
+                    <Button
+                      tone="neutral"
+                      onClick={() => revokeInvite(invite.id)}
+                    >
                       <Trash2 className="size-4" />
                       Revoke
                     </Button>
@@ -2331,12 +3421,21 @@ function SettingsView({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <ShieldCheck className="size-5 text-[var(--accent-strong)]" aria-hidden />
-              <h2 className="text-lg font-semibold">Multi-factor authentication</h2>
+              <ShieldCheck
+                className="size-5 text-[var(--accent-strong)]"
+                aria-hidden
+              />
+              <h2 className="text-lg font-semibold">
+                Multi-factor authentication
+              </h2>
             </div>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">Protect {user.email} with an authenticator app and backup codes.</p>
+            <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">
+              Protect {user.email} with an authenticator app and backup codes.
+            </p>
           </div>
-          <Pill tone={user.twoFactorEnabled ? "success" : "warning"}>{user.twoFactorEnabled ? "Enabled" : "Off"}</Pill>
+          <Pill tone={user.twoFactorEnabled ? "success" : "warning"}>
+            {user.twoFactorEnabled ? "Enabled" : "Off"}
+          </Pill>
         </div>
 
         <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,420px)_1fr]">
@@ -2347,7 +3446,12 @@ function SettingsView({
                   <Input
                     type="password"
                     value={mfa.enablePassword}
-                    onChange={(event) => setMfa((current) => ({ ...current, enablePassword: event.target.value }))}
+                    onChange={(event) =>
+                      setMfa((current) => ({
+                        ...current,
+                        enablePassword: event.target.value,
+                      }))
+                    }
                   />
                 </Field>
                 <Button onClick={startMfaSetup}>
@@ -2363,7 +3467,12 @@ function SettingsView({
                   <Input
                     type="password"
                     value={mfa.enablePassword}
-                    onChange={(event) => setMfa((current) => ({ ...current, enablePassword: event.target.value }))}
+                    onChange={(event) =>
+                      setMfa((current) => ({
+                        ...current,
+                        enablePassword: event.target.value,
+                      }))
+                    }
                   />
                 </Field>
                 <div className="flex flex-wrap gap-2">
@@ -2376,7 +3485,12 @@ function SettingsView({
                   <Input
                     type="password"
                     value={mfa.disablePassword}
-                    onChange={(event) => setMfa((current) => ({ ...current, disablePassword: event.target.value }))}
+                    onChange={(event) =>
+                      setMfa((current) => ({
+                        ...current,
+                        disablePassword: event.target.value,
+                      }))
+                    }
                   />
                 </Field>
                 <Button tone="neutral" onClick={disableMfa}>
@@ -2390,14 +3504,23 @@ function SettingsView({
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
             {mfa.setupTotpUri ? (
               <div className="grid gap-3">
-                <p className="font-semibold">Add this account to your authenticator app</p>
-                <p className="break-all rounded-xl border border-[var(--border)] bg-[var(--raised)] p-3 text-xs text-[var(--muted)]">{mfa.setupTotpUri}</p>
+                <p className="font-semibold">
+                  Add this account to your authenticator app
+                </p>
+                <p className="break-all rounded-xl border border-[var(--border)] bg-[var(--raised)] p-3 text-xs text-[var(--muted)]">
+                  {mfa.setupTotpUri}
+                </p>
                 <Field label="Authenticator code">
                   <Input
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     value={mfa.setupCode}
-                    onChange={(event) => setMfa((current) => ({ ...current, setupCode: event.target.value }))}
+                    onChange={(event) =>
+                      setMfa((current) => ({
+                        ...current,
+                        setupCode: event.target.value,
+                      }))
+                    }
                   />
                 </Field>
                 <Button onClick={verifyMfaSetup}>
@@ -2407,8 +3530,13 @@ function SettingsView({
               </div>
             ) : (
               <div className="grid gap-2 text-sm text-[var(--muted)]">
-                <p className="font-semibold text-[var(--text)]">Authenticator app setup</p>
-                <p>SkyTime uses Better Auth TOTP codes. After setup, sign-in will require your password plus a six-digit code.</p>
+                <p className="font-semibold text-[var(--text)]">
+                  Authenticator app setup
+                </p>
+                <p>
+                  SkyTime uses Better Auth TOTP codes. After setup, sign-in will
+                  require your password plus a six-digit code.
+                </p>
               </div>
             )}
 
@@ -2420,7 +3548,9 @@ function SettingsView({
                     type="button"
                     className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--accent-strong)]"
                     onClick={() => {
-                      void navigator.clipboard?.writeText(mfa.backupCodes.join("\n"));
+                      void navigator.clipboard?.writeText(
+                        mfa.backupCodes.join("\n"),
+                      );
                     }}
                   >
                     <Copy className="size-3.5" />
@@ -2429,7 +3559,10 @@ function SettingsView({
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {mfa.backupCodes.map((code) => (
-                    <code key={code} className="rounded-lg bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]">
+                    <code
+                      key={code}
+                      className="rounded-lg bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)]"
+                    >
                       {code}
                     </code>
                   ))}
@@ -2442,10 +3575,15 @@ function SettingsView({
 
       <section className="sky-panel p-4 sm:p-5">
         <div className="flex items-center gap-2">
-          <AlarmClock className="size-5 text-[var(--accent-strong)]" aria-hidden />
+          <AlarmClock
+            className="size-5 text-[var(--accent-strong)]"
+            aria-hidden
+          />
           <h2 className="text-lg font-semibold">Reminder cadence</h2>
         </div>
-        <p className="mt-1 text-sm text-[var(--muted)]">Browser reminders can prompt you to capture the last block of work.</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Browser reminders can prompt you to capture the last block of work.
+        </p>
 
         <div className="mt-5 grid gap-4">
           <Toggle
@@ -2487,10 +3625,15 @@ function SettingsView({
 
       <section className="sky-panel p-4 sm:p-5">
         <div className="flex items-center gap-2">
-          <CalendarRange className="size-5 text-[var(--accent-strong)]" aria-hidden />
+          <CalendarRange
+            className="size-5 text-[var(--accent-strong)]"
+            aria-hidden
+          />
           <h2 className="text-lg font-semibold">Export defaults</h2>
         </div>
-        <p className="mt-1 text-sm text-[var(--muted)]">Financial year presets use this start month for reports and exports.</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Financial year presets use this start month for reports and exports.
+        </p>
         <div className="mt-5 max-w-sm">
           <Field label="Financial year starts">
             <Select
@@ -2501,16 +3644,21 @@ function SettingsView({
                 saveSettings({ fyStartMonth: next });
               }}
             >
-              {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
-                <option key={month} value={month}>
-                  {monthName(month)}
-                </option>
-              ))}
+              {Array.from({ length: 12 }, (_, index) => index + 1).map(
+                (month) => (
+                  <option key={month} value={month}>
+                    {monthName(month)}
+                  </option>
+                ),
+              )}
             </Select>
           </Field>
           <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm">
             <p className="font-semibold">Tax code</p>
-            <p className="mt-1 text-[var(--muted)]">{AU_GST_LABEL}. Project rates are treated as ex GST and exports add 10% GST.</p>
+            <p className="mt-1 text-[var(--muted)]">
+              {AU_GST_LABEL}. Project rates are treated as ex GST and exports
+              add 10% GST.
+            </p>
           </div>
         </div>
       </section>
@@ -2518,39 +3666,78 @@ function SettingsView({
   );
 }
 
-function EntryTable({ entries, onDelete, projects }: { entries: TimeEntry[]; onDelete?: (id: string) => void; projects: Project[] }) {
+function EntryTable({
+  entries,
+  onDelete,
+  projects,
+}: {
+  entries: TimeEntry[];
+  onDelete?: (id: string) => void;
+  projects: Project[];
+}) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--raised)] shadow-[var(--soft-shadow)]">
       <div className="grid gap-2 p-3 md:hidden">
         {entries.length === 0 && (
           <div className="mx-auto grid max-w-sm justify-items-center gap-2 px-4 py-8 text-center text-[var(--muted)]">
-            <Clock3 className="size-8 text-[var(--accent-strong)]" aria-hidden />
-            <p className="font-semibold text-[var(--text)]">No time entries yet</p>
-            <p className="text-sm">Start your first timer and SkyTime will begin building your timesheet automatically.</p>
+            <Clock3
+              className="size-8 text-[var(--accent-strong)]"
+              aria-hidden
+            />
+            <p className="font-semibold text-[var(--text)]">
+              No time entries yet
+            </p>
+            <p className="text-sm">
+              Start your first timer and SkyTime will begin building your
+              timesheet automatically.
+            </p>
           </div>
         )}
         {entries.map((entry) => {
           const project = projects.find((item) => item.id === entry.projectId);
           return (
-            <article key={entry.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
+            <article
+              key={entry.id}
+              className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{formatDate(new Date(entry.startedAt))}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+                    {formatDate(new Date(entry.startedAt))}
+                  </p>
                   <p className="mt-1 truncate font-semibold">{entry.task}</p>
                   <p className="mt-1 flex min-w-0 items-center gap-2 text-sm text-[var(--muted)]">
-                    <span className="size-2 shrink-0 rounded-full" style={{ background: project?.color ?? "var(--border)" }} />
-                    <span className="truncate">{project?.name ?? "Unknown project"}</span>
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ background: project?.color ?? "var(--border)" }}
+                    />
+                    <span className="truncate">
+                      {project?.name ?? "Unknown project"}
+                    </span>
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold tabular">{formatDuration(entry.durationMs)}</p>
-                  <div className="mt-1">{entry.billable ? <Pill tone="success">Billable</Pill> : <Pill>Internal</Pill>}</div>
+                  <p className="font-semibold tabular">
+                    {formatDuration(entry.durationMs)}
+                  </p>
+                  <div className="mt-1">
+                    {entry.billable ? (
+                      <Pill tone="success">Billable</Pill>
+                    ) : (
+                      <Pill>Internal</Pill>
+                    )}
+                  </div>
                 </div>
               </div>
-              {entry.notes && <p className="mt-3 text-sm text-[var(--muted)]">{entry.notes}</p>}
+              {entry.notes && (
+                <p className="mt-3 text-sm text-[var(--muted)]">
+                  {entry.notes}
+                </p>
+              )}
               {entry.locked && (
                 <p className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)]">
-                  <Lock className="size-3.5" aria-hidden /> Locked by approved week
+                  <Lock className="size-3.5" aria-hidden /> Locked by approved
+                  week
                 </p>
               )}
               {onDelete && !entry.locked && (
@@ -2582,32 +3769,67 @@ function EntryTable({ entries, onDelete, projects }: { entries: TimeEntry[]; onD
           <tbody>
             {entries.length === 0 && (
               <tr>
-                <td className="px-4 py-10 text-center text-[var(--muted)]" colSpan={onDelete ? 6 : 5}>
+                <td
+                  className="px-4 py-10 text-center text-[var(--muted)]"
+                  colSpan={onDelete ? 6 : 5}
+                >
                   <div className="mx-auto grid max-w-sm justify-items-center gap-2">
-                    <Clock3 className="size-8 text-[var(--accent-strong)]" aria-hidden />
-                    <p className="font-semibold text-[var(--text)]">No time entries yet</p>
-                    <p className="text-sm">Start your first timer and SkyTime will begin building your timesheet automatically.</p>
+                    <Clock3
+                      className="size-8 text-[var(--accent-strong)]"
+                      aria-hidden
+                    />
+                    <p className="font-semibold text-[var(--text)]">
+                      No time entries yet
+                    </p>
+                    <p className="text-sm">
+                      Start your first timer and SkyTime will begin building
+                      your timesheet automatically.
+                    </p>
                   </div>
                 </td>
               </tr>
             )}
             {entries.map((entry) => {
-              const project = projects.find((item) => item.id === entry.projectId);
+              const project = projects.find(
+                (item) => item.id === entry.projectId,
+              );
               return (
-                <tr key={entry.id} className="border-t border-[var(--border)] transition-colors hover:bg-[var(--accent-subtle)]">
-                  <td className="whitespace-nowrap px-4 py-3 tabular">{formatDate(new Date(entry.startedAt))}</td>
+                <tr
+                  key={entry.id}
+                  className="border-t border-[var(--border)] transition-colors hover:bg-[var(--accent-subtle)]"
+                >
+                  <td className="whitespace-nowrap px-4 py-3 tabular">
+                    {formatDate(new Date(entry.startedAt))}
+                  </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center gap-2">
-                      <span className="size-2 rounded-full" style={{ background: project?.color ?? "var(--border)" }} />
+                      <span
+                        className="size-2 rounded-full"
+                        style={{
+                          background: project?.color ?? "var(--border)",
+                        }}
+                      />
                       {project?.name ?? "Unknown project"}
                     </span>
                   </td>
                   <td className="max-w-sm px-4 py-3">
                     <p className="font-semibold">{entry.task}</p>
-                    {entry.notes && <p className="truncate text-xs text-[var(--muted)]">{entry.notes}</p>}
+                    {entry.notes && (
+                      <p className="truncate text-xs text-[var(--muted)]">
+                        {entry.notes}
+                      </p>
+                    )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 font-semibold tabular">{formatDuration(entry.durationMs)}</td>
-                  <td className="px-4 py-3">{entry.billable ? <Pill tone="success">Yes</Pill> : <Pill>No</Pill>}</td>
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold tabular">
+                    {formatDuration(entry.durationMs)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {entry.billable ? (
+                      <Pill tone="success">Yes</Pill>
+                    ) : (
+                      <Pill>No</Pill>
+                    )}
+                  </td>
                   {onDelete && (
                     <td className="px-4 py-3">
                       {entry.locked ? (
@@ -2645,10 +3867,20 @@ function SectionHeader({ action, title }: { action?: string; title: string }) {
   );
 }
 
-function Field({ children, className, label }: { children: React.ReactNode; className?: string; label: string }) {
+function Field({
+  children,
+  className,
+  label,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  label: string;
+}) {
   return (
     <label className={cn("grid gap-1.5", className)}>
-      <span className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+        {label}
+      </span>
       {children}
     </label>
   );
@@ -2689,13 +3921,17 @@ function AddressInput({
     load
       .then((google) => {
         if (cancelled || !inputRef.current) return;
-        const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
-          fields: ["formatted_address"],
-          types: ["address"],
-        });
+        const autocomplete = new google.maps.places.Autocomplete(
+          inputRef.current,
+          {
+            fields: ["formatted_address"],
+            types: ["address"],
+          },
+        );
         listener = autocomplete.addListener("place_changed", () => {
           const place = autocomplete.getPlace();
-          if (place.formatted_address) onChangeRef.current(place.formatted_address);
+          if (place.formatted_address)
+            onChangeRef.current(place.formatted_address);
         });
       })
       .catch(() => {
@@ -2720,7 +3956,15 @@ function AddressInput({
   );
 }
 
-function Select({ children, onChange, value }: { children: React.ReactNode; onChange: (value: string) => void; value: string }) {
+function Select({
+  children,
+  onChange,
+  value,
+}: {
+  children: React.ReactNode;
+  onChange: (value: string) => void;
+  value: string;
+}) {
   return (
     <span className="relative block">
       <select
@@ -2730,14 +3974,29 @@ function Select({ children, onChange, value }: { children: React.ReactNode; onCh
       >
         {children}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-3 top-3 size-4 text-[var(--muted)]" aria-hidden />
+      <ChevronDown
+        className="pointer-events-none absolute right-3 top-3 size-4 text-[var(--muted)]"
+        aria-hidden
+      />
     </span>
   );
 }
 
-function Toggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
+function Toggle({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
   return (
-    <button type="button" onClick={() => onChange(!checked)} className="inline-flex items-center gap-2 rounded-xl text-sm font-semibold focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]">
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className="inline-flex items-center gap-2 rounded-xl text-sm font-semibold focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]"
+    >
       <span
         className={cn(
           "relative h-6 w-11 rounded-full border border-[var(--border)] transition-colors",
@@ -2757,17 +4016,30 @@ function Toggle({ checked, label, onChange }: { checked: boolean; label: string;
   );
 }
 
-function Button({ children, onClick, tone = "primary" }: { children: React.ReactNode; onClick?: () => void; tone?: "primary" | "neutral" | "danger" }) {
+function Button({
+  children,
+  onClick,
+  disabled = false,
+  tone = "primary",
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  tone?: "primary" | "neutral" | "danger";
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition-colors focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)] max-sm:w-full",
+        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition-colors focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)] disabled:cursor-wait disabled:opacity-60 max-sm:w-full",
         tone === "primary" &&
           "border-[var(--accent-strong)] bg-[var(--accent)] text-[var(--raised)] shadow-[0_10px_24px_color-mix(in_oklch,var(--accent)_24%,transparent)] hover:bg-[var(--accent-strong)]",
-        tone === "neutral" && "border-[var(--border)] bg-[var(--raised)] text-[var(--text)] shadow-sm hover:bg-[var(--surface)]",
-        tone === "danger" && "border-[var(--error)] bg-[var(--error)] text-[var(--raised)] shadow-[0_10px_24px_color-mix(in_oklch,var(--error)_24%,transparent)] hover:bg-[color-mix(in_oklch,var(--error)_88%,var(--text))]",
+        tone === "neutral" &&
+          "border-[var(--border)] bg-[var(--raised)] text-[var(--text)] shadow-sm hover:bg-[var(--surface)]",
+        tone === "danger" &&
+          "border-[var(--error)] bg-[var(--error)] text-[var(--raised)] shadow-[0_10px_24px_color-mix(in_oklch,var(--error)_24%,transparent)] hover:bg-[color-mix(in_oklch,var(--error)_88%,var(--text))]",
       )}
     >
       {children}
@@ -2775,13 +4047,23 @@ function Button({ children, onClick, tone = "primary" }: { children: React.React
   );
 }
 
-function Pill({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "accent" | "success" | "warning" | "error" }) {
+function Pill({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "accent" | "success" | "warning" | "error";
+}) {
   const tones = {
-    accent: "border-[color-mix(in_oklch,var(--accent)_45%,var(--border))] bg-[var(--accent-subtle)] text-[var(--accent-strong)] shadow-sm",
-    error: "border-[color-mix(in_oklch,var(--error)_45%,var(--border))] bg-[var(--error-soft)] text-[var(--error)]",
+    accent:
+      "border-[color-mix(in_oklch,var(--accent)_45%,var(--border))] bg-[var(--accent-subtle)] text-[var(--accent-strong)] shadow-sm",
+    error:
+      "border-[color-mix(in_oklch,var(--error)_45%,var(--border))] bg-[var(--error-soft)] text-[var(--error)]",
     neutral: "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)]",
-    success: "border-[color-mix(in_oklch,var(--success)_45%,var(--border))] bg-[var(--success-soft)] text-[var(--success)]",
-    warning: "border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-[var(--warning-soft)] text-[var(--warning)]",
+    success:
+      "border-[color-mix(in_oklch,var(--success)_45%,var(--border))] bg-[var(--success-soft)] text-[var(--success)]",
+    warning:
+      "border-[color-mix(in_oklch,var(--warning)_45%,var(--border))] bg-[var(--warning-soft)] text-[var(--warning)]",
   };
 
   return (
@@ -2796,17 +4078,29 @@ function Pill({ children, tone = "neutral" }: { children: React.ReactNode; tone?
   );
 }
 
-function getPeriodRange(preset: PeriodPreset, fyStartMonth: number, customStart: string, customEnd: string) {
+function getPeriodRange(
+  preset: PeriodPreset,
+  fyStartMonth: number,
+  customStart: string,
+  customEnd: string,
+) {
   const now = new Date();
 
   if (preset === "today") return { start: startOfDay(now), end: endOfDay(now) };
   if (preset === "week") return { start: startOfWeek(now), end: endOfDay(now) };
-  if (preset === "month") return { start: startOfMonth(now), end: endOfDay(now) };
-  if (preset === "annual") return { start: new Date(now.getFullYear(), 0, 1), end: endOfDay(now) };
-  if (preset === "custom") return { start: startOfDay(new Date(`${customStart}T00:00:00`)), end: endOfDay(new Date(`${customEnd}T00:00:00`)) };
+  if (preset === "month")
+    return { start: startOfMonth(now), end: endOfDay(now) };
+  if (preset === "annual")
+    return { start: new Date(now.getFullYear(), 0, 1), end: endOfDay(now) };
+  if (preset === "custom")
+    return {
+      start: startOfDay(new Date(`${customStart}T00:00:00`)),
+      end: endOfDay(new Date(`${customEnd}T00:00:00`)),
+    };
 
   const fyMonthIndex = fyStartMonth - 1;
-  const year = now.getMonth() >= fyMonthIndex ? now.getFullYear() : now.getFullYear() - 1;
+  const year =
+    now.getMonth() >= fyMonthIndex ? now.getFullYear() : now.getFullYear() - 1;
   return { start: new Date(year, fyMonthIndex, 1), end: endOfDay(now) };
 }
 
@@ -2838,11 +4132,16 @@ function isInsideRange(date: Date, start: Date, end: Date) {
 }
 
 function toDateInput(date: Date) {
-  return date.toISOString().slice(0, 10);
+  // Inputs and period boundaries use the browser's local calendar, not UTC.
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function formatDate(date: Date) {
-  return new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
 }
 
 function formatLongDate(date: Date) {
@@ -2850,7 +4149,12 @@ function formatLongDate(date: Date) {
 }
 
 function formatClock(date: Date) {
-  return new Intl.DateTimeFormat("en-AU", { hour: "numeric", minute: "2-digit" }).format(date).toLowerCase();
+  return new Intl.DateTimeFormat("en-AU", {
+    hour: "numeric",
+    minute: "2-digit",
+  })
+    .format(date)
+    .toLowerCase();
 }
 
 function formatDuration(ms: number) {
@@ -2874,18 +4178,26 @@ function formatDecimalHours(ms: number) {
 }
 
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(value);
+  return new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+  }).format(value);
 }
 
 function monthName(month: number) {
-  return new Intl.DateTimeFormat("en-AU", { month: "long" }).format(new Date(2026, month - 1, 1));
+  return new Intl.DateTimeFormat("en-AU", { month: "long" }).format(
+    new Date(2026, month - 1, 1),
+  );
 }
 
 function getTotals(entries: TimeEntry[], projects: Project[]) {
   const totals = new Map<string, { durationMs: number; billableMs: number }>();
 
   entries.forEach((entry) => {
-    const current = totals.get(entry.projectId) ?? { durationMs: 0, billableMs: 0 };
+    const current = totals.get(entry.projectId) ?? {
+      durationMs: 0,
+      billableMs: 0,
+    };
     current.durationMs += entry.durationMs;
     if (entry.billable) current.billableMs += entry.durationMs;
     totals.set(entry.projectId, current);
@@ -2894,17 +4206,31 @@ function getTotals(entries: TimeEntry[], projects: Project[]) {
   return projects.flatMap((project) => {
     const total = totals.get(project.id);
     if (!total) return [];
-    const amountExGst = (total.billableMs / 3600000) * project.rate;
+    const amountExGst = entries
+      .filter((entry) => entry.projectId === project.id && entry.billable)
+      .reduce(
+        (sum, entry) =>
+          sum +
+          Math.round(
+            (entry.durationMs / 3600000) *
+              (entry.hourlyRate ?? project.rate) *
+              100,
+          ) /
+            100,
+        0,
+      );
     const gst = amountExGst * AU_GST_RATE;
 
-    return [{
-      project,
-      durationMs: total.durationMs,
-      billableMs: total.billableMs,
-      amountExGst,
-      gst,
-      amountIncGst: amountExGst + gst,
-    }];
+    return [
+      {
+        project,
+        durationMs: total.durationMs,
+        billableMs: total.billableMs,
+        amountExGst,
+        gst,
+        amountIncGst: amountExGst + gst,
+      },
+    ];
   });
 }
 
@@ -2930,7 +4256,11 @@ async function api<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new ApiError(typeof data.error === "string" ? data.error : "Request failed", response.status, data);
+    throw new ApiError(
+      typeof data.error === "string" ? data.error : "Request failed",
+      response.status,
+      data,
+    );
   }
 
   return data as T;
@@ -2941,44 +4271,35 @@ function getPendingInviteId() {
   return new URLSearchParams(window.location.search).get("invite") ?? "";
 }
 
-function exportCsv(entries: TimeEntry[], projects: Project[], range: { start: Date; end: Date }) {
-  const totals = getTotals(entries, projects);
-  const amountExGst = totals.reduce((sum, total) => sum + total.amountExGst, 0);
-  const gst = totals.reduce((sum, total) => sum + total.gst, 0);
-  const amountIncGst = totals.reduce((sum, total) => sum + total.amountIncGst, 0);
-  const rows = [
-    ["Date", "Project", "Client", "Task", "Notes", "Duration", "Billable", "Rate ex GST", "Amount ex GST", "GST", "Amount inc GST"],
-    ...entries.map((entry) => {
-      const project = projects.find((item) => item.id === entry.projectId);
-      const amount = entry.billable && project ? (entry.durationMs / 3600000) * project.rate : 0;
-      const tax = amount * AU_GST_RATE;
-      return [
-        formatDate(new Date(entry.startedAt)),
-        project?.name ?? "Unknown project",
-        project?.client ?? "",
-        entry.task,
-        entry.notes,
-        formatDuration(entry.durationMs),
-        entry.billable ? "Yes" : "No",
-        project?.rate ?? 0,
-        amount.toFixed(2),
-        tax.toFixed(2),
-        (amount + tax).toFixed(2),
-      ];
-    }),
-    [],
-    ["Totals", "", "", "", "", formatDuration(entries.reduce((sum, entry) => sum + entry.durationMs, 0)), "", "", amountExGst.toFixed(2), gst.toFixed(2), amountIncGst.toFixed(2)],
-    ["Tax code", AU_GST_LABEL, "Rates are exclusive of GST by default"],
-  ];
-
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `skytime-${toDateInput(range.start)}-${toDateInput(range.end)}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+async function exportCsv(
+  entries: TimeEntry[],
+  projects: Project[],
+  range: { start: Date; end: Date },
+  showToast: (message: string, tone?: "success" | "error") => void,
+) {
+  try {
+    const params = new URLSearchParams({
+      from: toDateInput(range.start),
+      to: toDateInput(range.end),
+      format: "csv",
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    const response = await fetch(`/api/v1/reports/export?${params}`);
+    if (!response.ok)
+      throw new Error((await response.json()).error || "Export failed");
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `skytime-${toDateInput(range.start)}-${toDateInput(range.end)}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast("CSV exported", "success");
+  } catch (error) {
+    showToast(
+      error instanceof Error ? error.message : "CSV export failed",
+      "error",
+    );
+  }
 }
 
 async function exportPdf(
@@ -2987,184 +4308,31 @@ async function exportPdf(
   range: { start: Date; end: Date },
   user: WorkspacePayload["user"],
   organization: WorkspacePayload["organization"],
-  showToast: (message: string, tone?: ToastTone) => void,
+  showToast: (message: string, tone?: "success" | "error") => void,
 ) {
-  const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ orientation: "landscape" });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const left = 12;
-  const right = pageWidth - 12;
-  const totals = getTotals(entries, projects);
-  const totalMs = entries.reduce((sum, entry) => sum + entry.durationMs, 0);
-  const billableMs = entries.filter((entry) => entry.billable).reduce((sum, entry) => sum + entry.durationMs, 0);
-  const amountExGst = totals.reduce((sum, total) => sum + total.amountExGst, 0);
-  const gst = totals.reduce((sum, total) => sum + total.gst, 0);
-  const amountIncGst = totals.reduce((sum, total) => sum + total.amountIncGst, 0);
-  const grouped = entries.reduce<Map<string, TimeEntry[]>>((map, entry) => {
-    const key = toDateInput(new Date(entry.startedAt));
-    map.set(key, [...(map.get(key) ?? []), entry]);
-    return map;
-  }, new Map());
-
-  let y = 14;
-
-  function drawSkyTimeLogo(x: number, yPosition: number) {
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(x, yPosition, 34, 28, 1.5, 1.5, "F");
-    doc.setFillColor(37, 99, 235);
-    doc.circle(x + 10, yPosition + 13, 6, "F");
-    doc.setFillColor(224, 242, 254);
-    doc.roundedRect(x + 4, yPosition + 14, 15, 6, 3, 3, "F");
-    doc.setDrawColor(224, 242, 254);
-    doc.setLineWidth(1.2);
-    doc.line(x + 7, yPosition + 12, x + 10, yPosition + 15);
-    doc.line(x + 10, yPosition + 15, x + 15, yPosition + 10);
-    doc.setTextColor(37, 99, 235);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(6.5);
-    doc.text("SkyTime", x + 19, yPosition + 15);
-    doc.setTextColor(15, 23, 42);
-  }
-
-  function drawHeader() {
-    doc.setTextColor(15, 23, 42);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text(`Project Time Report - ${organization.name}`, left, y);
-    y += 8;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(71, 85, 105);
-    doc.text(`Date range: ${formatDate(range.start)} - ${formatDate(range.end)}`, left, y);
-    y += 7;
-    doc.text(`Generated for ${user.name || user.email} at ${formatClock(new Date())} ${formatDate(new Date())}`, left, y);
-    y += 7;
-    doc.text(`Filtered totals: ${formatDurationWords(totalMs)} (${formatDecimalHours(totalMs)})   Billable: ${formatDurationWords(billableMs)} (${formatDecimalHours(billableMs)})`, left, y);
-    y += 7;
-    doc.text(`Amounts are ex GST by default. Tax code: ${AU_GST_LABEL}`, left, y);
-    drawSkyTimeLogo(right - 34, 11);
-    y += 13;
-  }
-
-  function drawTableHeader() {
-    const columns = [
-      ["Project", left, 32],
-      ["Who", 44, 24],
-      ["Description", 68, 104],
-      ["Task list", 172, 18],
-      ["Start", 190, 15],
-      ["End", 205, 15],
-      ["Billable", 220, 17],
-      ["Invoiced", 237, 18],
-      ["Time", 255, 14],
-      ["Hours", 269, 15],
-    ] as const;
-
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(219, 225, 232);
-    doc.roundedRect(left, y, 272, 9, 1, 1, "FD");
-    doc.setDrawColor(64, 70, 78);
-    doc.setLineWidth(0.45);
-    doc.line(left, y + 9, left + 272, y + 9);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(15, 23, 42);
-    columns.forEach(([label, x, width]) => {
-      doc.text(label, x + 2, y + 6);
-      doc.setDrawColor(219, 225, 232);
-      doc.line(x + width, y, x + width, y + 9);
+  try {
+    const params = new URLSearchParams({
+      from: toDateInput(range.start),
+      to: toDateInput(range.end),
+      format: "pdf",
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
-    y += 9;
+    const response = await fetch(`/api/v1/reports/export?${params}`);
+    if (!response.ok)
+      throw new Error((await response.json()).error || "Export failed");
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `skytime-${toDateInput(range.start)}-${toDateInput(range.end)}.pdf`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast("PDF exported", "success");
+  } catch (error) {
+    showToast(
+      error instanceof Error ? error.message : "PDF export failed",
+      "error",
+    );
   }
-
-  function ensureSpace(required: number) {
-    if (y + required <= pageHeight - 14) return;
-    doc.addPage();
-    y = 14;
-    drawHeader();
-  }
-
-  drawHeader();
-
-  if (entries.length === 0) {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text("No time entries in this period.", left, y);
-  }
-
-  Array.from(grouped.entries()).forEach(([dateKey, dayEntries]) => {
-    ensureSpace(28);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(13);
-    doc.setTextColor(71, 85, 105);
-    doc.text(formatLongDate(new Date(`${dateKey}T00:00:00`)), left, y);
-    y += 10;
-    drawTableHeader();
-
-    dayEntries.forEach((entry) => {
-      const project = projects.find((item) => item.id === entry.projectId);
-      const start = new Date(entry.startedAt);
-      const end = new Date(start.getTime() + entry.durationMs);
-      const description = entry.notes || entry.task;
-      const projectName = project ? `${project.name}${project.client ? ` - ${project.client}` : ""}` : "Unknown project";
-      const descriptionLines = doc.splitTextToSize(description, 96).slice(0, 3);
-      const projectLines = doc.splitTextToSize(projectName, 28).slice(0, 2);
-      const whoLines = doc.splitTextToSize(user.name || user.email, 18).slice(0, 2);
-      const rowHeight = Math.max(18, descriptionLines.length * 5 + 7, projectLines.length * 5 + 7);
-
-      ensureSpace(rowHeight + 4);
-      doc.setDrawColor(219, 225, 232);
-      doc.roundedRect(left, y, 272, rowHeight, 1, 1, "S");
-      [44, 68, 172, 190, 205, 220, 237, 255, 269].forEach((x) => doc.line(x, y, x, y + rowHeight));
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(15, 23, 42);
-      doc.text(projectLines, left + 2, y + 6);
-      doc.text(whoLines, 46, y + 6);
-      doc.text(descriptionLines, 70, y + 6);
-      doc.text("", 174, y + 6);
-      doc.text(formatClock(start), 192, y + 6);
-      doc.text(formatClock(end), 207, y + 6);
-      doc.text(entry.billable ? "Yes" : "No", 223, y + 6);
-      doc.text("No", 241, y + 6);
-      doc.text(formatDurationWords(entry.durationMs), 257, y + 6);
-      doc.text(formatDecimalHours(entry.durationMs), 281, y + 6, { align: "right" });
-      y += rowHeight;
-    });
-
-    y += 10;
-  });
-
-  ensureSpace(50);
-  const totalsX = right - 70;
-  const totalsY = y;
-  doc.setDrawColor(219, 225, 232);
-  doc.roundedRect(totalsX, totalsY, 70, 45, 1, 1, "S");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text("Totals", totalsX + 3, totalsY + 7);
-  doc.setDrawColor(64, 70, 78);
-  doc.line(totalsX, totalsY + 10, totalsX + 70, totalsY + 10);
-  doc.setDrawColor(219, 225, 232);
-  doc.line(totalsX + 36, totalsY, totalsX + 36, totalsY + 45);
-  doc.line(totalsX + 56, totalsY, totalsX + 56, totalsY + 45);
-  doc.setFont("helvetica", "normal");
-  [
-    ["Total", formatDurationWords(totalMs), formatDecimalHours(totalMs)],
-    ["Billable Time", formatDurationWords(billableMs), formatDecimalHours(billableMs)],
-    ["Ex GST", formatCurrency(amountExGst), ""],
-    [AU_GST_LABEL, formatCurrency(gst), ""],
-    ["Inc GST", formatCurrency(amountIncGst), ""],
-  ].forEach(([label, value, hours], index) => {
-    const rowY = totalsY + 17 + index * 6;
-    doc.text(label, totalsX + 3, rowY);
-    doc.text(value, totalsX + 39, rowY);
-    if (hours) doc.text(hours, totalsX + 66, rowY, { align: "right" });
-  });
-
-  doc.save(`skytime-${toDateInput(range.start)}-${toDateInput(range.end)}.pdf`);
-  showToast("PDF exported", "success");
 }
 
 function upsertPeriod(list: TimesheetPeriod[], next: TimesheetPeriod) {
@@ -3196,36 +4364,91 @@ function ClientsView({
     <div className="grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
       <section className="sky-panel p-4 sm:p-5">
         <div className="flex items-center gap-2">
-          <Building2 className="size-5 text-[var(--accent-strong)]" aria-hidden />
+          <Building2
+            className="size-5 text-[var(--accent-strong)]"
+            aria-hidden
+          />
           <h2 className="text-lg font-semibold">Create client</h2>
         </div>
         <div className="mt-4 grid gap-3">
           <Field label="Client name">
-            <Input value={newClient.name} onChange={(event) => setNewClient((current) => ({ ...current, name: event.target.value }))} />
+            <Input
+              value={newClient.name}
+              onChange={(event) =>
+                setNewClient((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
+              }
+            />
           </Field>
           <Field label="Primary contact">
-            <Input value={newClient.contactName} onChange={(event) => setNewClient((current) => ({ ...current, contactName: event.target.value }))} />
+            <Input
+              value={newClient.contactName}
+              onChange={(event) =>
+                setNewClient((current) => ({
+                  ...current,
+                  contactName: event.target.value,
+                }))
+              }
+            />
           </Field>
           <Field label="Contact email">
-            <Input type="email" value={newClient.contactEmail} onChange={(event) => setNewClient((current) => ({ ...current, contactEmail: event.target.value }))} />
+            <Input
+              type="email"
+              value={newClient.contactEmail}
+              onChange={(event) =>
+                setNewClient((current) => ({
+                  ...current,
+                  contactEmail: event.target.value,
+                }))
+              }
+            />
           </Field>
           <Field label="Address">
             <AddressInput
               value={newClient.address}
-              onChange={(address) => setNewClient((current) => ({ ...current, address }))}
+              onChange={(address) =>
+                setNewClient((current) => ({ ...current, address }))
+              }
               placeholder="Start typing to search…"
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Currency">
-              <Input value={newClient.currency} onChange={(event) => setNewClient((current) => ({ ...current, currency: event.target.value }))} />
+              <Input
+                value={newClient.currency}
+                onChange={(event) =>
+                  setNewClient((current) => ({
+                    ...current,
+                    currency: event.target.value,
+                  }))
+                }
+              />
             </Field>
             <Field label="Default rate">
-              <Input inputMode="decimal" value={newClient.defaultRate} onChange={(event) => setNewClient((current) => ({ ...current, defaultRate: event.target.value }))} />
+              <Input
+                inputMode="decimal"
+                value={newClient.defaultRate}
+                onChange={(event) =>
+                  setNewClient((current) => ({
+                    ...current,
+                    defaultRate: event.target.value,
+                  }))
+                }
+              />
             </Field>
           </div>
           <Field label="Notes">
-            <Input value={newClient.notes} onChange={(event) => setNewClient((current) => ({ ...current, notes: event.target.value }))} />
+            <Input
+              value={newClient.notes}
+              onChange={(event) =>
+                setNewClient((current) => ({
+                  ...current,
+                  notes: event.target.value,
+                }))
+              }
+            />
           </Field>
           <Button onClick={addClient}>
             <Plus className="size-4" />
@@ -3235,7 +4458,10 @@ function ClientsView({
       </section>
 
       <section>
-        <SectionHeader title="Clients" action={`${clients.filter((client) => !client.archivedAt).length} active`} />
+        <SectionHeader
+          title="Clients"
+          action={`${clients.filter((client) => !client.archivedAt).length} active`}
+        />
         <div className="grid gap-3 md:grid-cols-2">
           {clients.length === 0 && (
             <EmptyState
@@ -3245,39 +4471,76 @@ function ClientsView({
             />
           )}
           {clients.map((client) => {
-            const clientProjects = projects.filter((project) => project.clientId === client.id || project.client === client.name);
+            const clientProjects = projects.filter(
+              (project) =>
+                project.clientId === client.id ||
+                project.client === client.name,
+            );
             const clientMs = entries
-              .filter((entry) => clientProjects.some((project) => project.id === entry.projectId))
+              .filter((entry) =>
+                clientProjects.some(
+                  (project) => project.id === entry.projectId,
+                ),
+              )
               .reduce((sum, entry) => sum + entry.durationMs, 0);
             return (
-              <article key={client.id} className={cn("sky-panel p-4", client.archivedAt && "opacity-60")}>
+              <article
+                key={client.id}
+                className={cn(
+                  "sky-panel p-4",
+                  client.archivedAt && "opacity-60",
+                )}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="truncate font-semibold">{client.name}</h3>
-                    {client.contactName && <p className="mt-1 text-sm text-[var(--muted)] truncate">{client.contactName}</p>}
+                    {client.contactName && (
+                      <p className="mt-1 text-sm text-[var(--muted)] truncate">
+                        {client.contactName}
+                      </p>
+                    )}
                     {client.contactEmail && (
-                      <p className="text-sm text-[var(--muted)] truncate">{client.contactEmail}</p>
+                      <p className="text-sm text-[var(--muted)] truncate">
+                        {client.contactEmail}
+                      </p>
                     )}
                   </div>
-                  <Pill tone={client.archivedAt ? "warning" : "success"}>{client.archivedAt ? "Archived" : "Active"}</Pill>
+                  <Pill tone={client.archivedAt ? "warning" : "success"}>
+                    {client.archivedAt ? "Archived" : "Active"}
+                  </Pill>
                 </div>
-                {client.address && <p className="mt-3 text-sm text-[var(--muted)]">{client.address}</p>}
+                {client.address && (
+                  <p className="mt-3 text-sm text-[var(--muted)]">
+                    {client.address}
+                  </p>
+                )}
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <dt className="text-[var(--muted)]">Default rate</dt>
                     <dd className="mt-1 font-semibold tabular">
-                      {client.defaultRate > 0 ? `${formatCurrency(client.defaultRate)}/hr ${client.currency}` : "—"}
+                      {client.defaultRate > 0
+                        ? `${formatCurrency(client.defaultRate)}/hr ${client.currency}`
+                        : "—"}
                     </dd>
                   </div>
                   <div>
                     <dt className="text-[var(--muted)]">Tracked</dt>
-                    <dd className="mt-1 font-semibold tabular">{formatDuration(clientMs)}</dd>
+                    <dd className="mt-1 font-semibold tabular">
+                      {formatDuration(clientMs)}
+                    </dd>
                   </div>
                 </dl>
-                {client.notes && <p className="mt-3 text-sm text-[var(--muted)]">{client.notes}</p>}
+                {client.notes && (
+                  <p className="mt-3 text-sm text-[var(--muted)]">
+                    {client.notes}
+                  </p>
+                )}
                 {!client.archivedAt && (
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Button tone="neutral" onClick={() => archiveClient(client.id)}>
+                    <Button
+                      tone="neutral"
+                      onClick={() => archiveClient(client.id)}
+                    >
                       <Trash2 className="size-4" />
                       Archive
                     </Button>
@@ -3308,7 +4571,11 @@ function ApprovalsView({
   isAdmin: boolean;
   periods: TimesheetPeriod[];
   reload: () => void;
-  reviewPeriod: (id: string, action: "approve" | "reject" | "reopen", note?: string) => void;
+  reviewPeriod: (
+    id: string,
+    action: "approve" | "reject" | "reopen",
+    note?: string,
+  ) => void;
   setSubmitNote: Dispatch<SetStateAction<string>>;
   submitCurrentPeriod: () => void;
   submitNote: string;
@@ -3333,15 +4600,28 @@ function ApprovalsView({
         </div>
         {currentPeriod && (
           <dl className="mt-4 grid gap-3 sm:grid-cols-3">
-            <Stat label="Total tracked" value={formatDuration(currentPeriod.totalMs)} />
+            <Stat
+              label="Total tracked"
+              value={formatDuration(currentPeriod.totalMs)}
+            />
             <Stat label="Status" value={currentPeriod.status} />
-            <Stat label="Submitted" value={currentPeriod.submittedAt ? formatDate(new Date(currentPeriod.submittedAt)) : "—"} />
+            <Stat
+              label="Submitted"
+              value={
+                currentPeriod.submittedAt
+                  ? formatDate(new Date(currentPeriod.submittedAt))
+                  : "—"
+              }
+            />
           </dl>
         )}
         {currentPeriod && currentPeriod.status !== "approved" && (
           <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
             <Field label="Note for reviewer (optional)">
-              <Input value={submitNote} onChange={(event) => setSubmitNote(event.target.value)} />
+              <Input
+                value={submitNote}
+                onChange={(event) => setSubmitNote(event.target.value)}
+              />
             </Field>
             <Button onClick={submitCurrentPeriod}>
               <CheckCircle2 className="size-4" />
@@ -3358,7 +4638,10 @@ function ApprovalsView({
 
       {isAdmin && (
         <section className="sky-panel p-4 sm:p-5">
-          <SectionHeader title="Awaiting your review" action={`${reviewQueue.length} pending`} />
+          <SectionHeader
+            title="Awaiting your review"
+            action={`${reviewQueue.length} pending`}
+          />
           {reviewQueue.length === 0 ? (
             <p className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
               No timesheets are waiting for approval right now.
@@ -3381,7 +4664,10 @@ function ApprovalsView({
       )}
 
       <section>
-        <SectionHeader title="My timesheets" action={`${myPeriods.length} weeks`} />
+        <SectionHeader
+          title="My timesheets"
+          action={`${myPeriods.length} weeks`}
+        />
         {myPeriods.length === 0 ? (
           <p className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
             Your previous timesheet weeks will appear here once you submit one.
@@ -3397,15 +4683,26 @@ function ApprovalsView({
 
       {isAdmin && others.length > 0 && (
         <section>
-          <SectionHeader title="Team history" action={`${others.length} weeks`} />
+          <SectionHeader
+            title="Team history"
+            action={`${others.length} weeks`}
+          />
           <div className="grid gap-3">
             {others.map((period) => (
               <PeriodCard
                 key={period.id}
                 period={period}
                 isAdmin
-                onApprove={period.status === "submitted" ? () => reviewPeriod(period.id, "approve") : undefined}
-                onReject={period.status === "submitted" ? () => reviewPeriod(period.id, "reject") : undefined}
+                onApprove={
+                  period.status === "submitted"
+                    ? () => reviewPeriod(period.id, "approve")
+                    : undefined
+                }
+                onReject={
+                  period.status === "submitted"
+                    ? () => reviewPeriod(period.id, "reject")
+                    : undefined
+                }
                 onReopen={
                   period.status === "approved" || period.status === "rejected"
                     ? () => reviewPeriod(period.id, "reopen")
@@ -3455,10 +4752,14 @@ function PeriodCard({
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
             {period.periodStart} → {period.periodEnd}
           </p>
-          <p className="mt-1 font-semibold">{period.userEmail ?? period.userId}</p>
+          <p className="mt-1 font-semibold">
+            {period.userEmail ?? period.userId}
+          </p>
           <p className="mt-1 text-sm tabular text-[var(--muted)]">
             {formatDuration(period.totalMs)} tracked
-            {period.submittedAt ? ` · submitted ${formatDate(new Date(period.submittedAt))}` : ""}
+            {period.submittedAt
+              ? ` · submitted ${formatDate(new Date(period.submittedAt))}`
+              : ""}
             {period.reviewedAt && period.reviewerEmail
               ? ` · reviewed by ${period.reviewerEmail}`
               : ""}
@@ -3497,16 +4798,27 @@ function PeriodCard({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+        {label}
+      </p>
       <p className="mt-2 text-lg font-bold tabular">{value}</p>
     </div>
   );
 }
 
-function AuditLogView({ entries, reload }: { entries: AuditLogEntry[]; reload: () => void }) {
+function AuditLogView({
+  entries,
+  reload,
+}: {
+  entries: AuditLogEntry[];
+  reload: () => void;
+}) {
   return (
     <section className="sky-panel p-4 sm:p-5">
-      <SectionHeader title="Audit log" action={`${entries.length} recent events`} />
+      <SectionHeader
+        title="Audit log"
+        action={`${entries.length} recent events`}
+      />
       <div className="mb-3">
         <button
           type="button"
@@ -3518,7 +4830,8 @@ function AuditLogView({ entries, reload }: { entries: AuditLogEntry[]; reload: (
       </div>
       {entries.length === 0 ? (
         <p className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
-          No audit events yet. Mutations on projects, time entries, clients, tasks, invites, and timesheets will appear here.
+          No audit events yet. Mutations on projects, time entries, clients,
+          tasks, invites, and timesheets will appear here.
         </p>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--raised)]">
@@ -3535,11 +4848,22 @@ function AuditLogView({ entries, reload }: { entries: AuditLogEntry[]; reload: (
               </thead>
               <tbody>
                 {entries.map((entry) => (
-                  <tr key={entry.id} className="border-t border-[var(--border)]">
-                    <td className="whitespace-nowrap px-4 py-3 tabular">{formatDate(new Date(entry.createdAt))}</td>
-                    <td className="px-4 py-3">{entry.userEmail ?? entry.userId ?? "system"}</td>
-                    <td className="px-4 py-3"><Pill>{entry.action}</Pill></td>
-                    <td className="px-4 py-3 text-[var(--muted)]">{entry.entityType}</td>
+                  <tr
+                    key={entry.id}
+                    className="border-t border-[var(--border)]"
+                  >
+                    <td className="whitespace-nowrap px-4 py-3 tabular">
+                      {formatDate(new Date(entry.createdAt))}
+                    </td>
+                    <td className="px-4 py-3">
+                      {entry.userEmail ?? entry.userId ?? "system"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Pill>{entry.action}</Pill>
+                    </td>
+                    <td className="px-4 py-3 text-[var(--muted)]">
+                      {entry.entityType}
+                    </td>
                     <td className="px-4 py-3">{entry.summary}</td>
                   </tr>
                 ))}
@@ -3552,10 +4876,19 @@ function AuditLogView({ entries, reload }: { entries: AuditLogEntry[]; reload: (
   );
 }
 
-function ErrorLogView({ entries, reload }: { entries: ErrorLogEntry[]; reload: () => void }) {
+function ErrorLogView({
+  entries,
+  reload,
+}: {
+  entries: ErrorLogEntry[];
+  reload: () => void;
+}) {
   return (
     <section className="sky-panel p-4 sm:p-5">
-      <SectionHeader title="Error log" action={`${entries.length} recent events`} />
+      <SectionHeader
+        title="Error log"
+        action={`${entries.length} recent events`}
+      />
       <div className="mb-3">
         <button
           type="button"
@@ -3567,7 +4900,8 @@ function ErrorLogView({ entries, reload }: { entries: ErrorLogEntry[]; reload: (
       </div>
       {entries.length === 0 ? (
         <p className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
-          No captured errors. Unhandled API exceptions and validation failures will appear here for triage.
+          No captured errors. Unhandled API exceptions and validation failures
+          will appear here for triage.
         </p>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--raised)]">
@@ -3584,14 +4918,29 @@ function ErrorLogView({ entries, reload }: { entries: ErrorLogEntry[]; reload: (
               </thead>
               <tbody>
                 {entries.map((entry) => (
-                  <tr key={entry.id} className="border-t border-[var(--border)]">
-                    <td className="whitespace-nowrap px-4 py-3 tabular">{formatDate(new Date(entry.createdAt))}</td>
+                  <tr
+                    key={entry.id}
+                    className="border-t border-[var(--border)]"
+                  >
+                    <td className="whitespace-nowrap px-4 py-3 tabular">
+                      {formatDate(new Date(entry.createdAt))}
+                    </td>
                     <td className="px-4 py-3">
-                      <Pill tone={entry.level === "error" ? "error" : entry.level === "warn" ? "warning" : "neutral"}>
+                      <Pill
+                        tone={
+                          entry.level === "error"
+                            ? "error"
+                            : entry.level === "warn"
+                              ? "warning"
+                              : "neutral"
+                        }
+                      >
                         {entry.level}
                       </Pill>
                     </td>
-                    <td className="px-4 py-3 tabular">{entry.statusCode ?? "—"}</td>
+                    <td className="px-4 py-3 tabular">
+                      {entry.statusCode ?? "—"}
+                    </td>
                     <td className="px-4 py-3 font-mono text-xs text-[var(--muted)]">
                       {entry.method ?? ""} {entry.path ?? ""}
                     </td>

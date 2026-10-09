@@ -1,4 +1,4 @@
-import { query, toNumber } from "@/lib/db";
+import { query, toNumber, tenantMutation } from "@/lib/db";
 import type {
   BoardTask,
   Client,
@@ -17,6 +17,11 @@ export type ProjectRow = {
   rate: string | number;
   color: string;
   status: Project["status"];
+  budget_hours: number;
+  budget_amount: number;
+  cost_rate: number;
+  deadline: Date | null;
+  notes: string;
 };
 
 export type TimeEntryRow = {
@@ -28,6 +33,12 @@ export type TimeEntryRow = {
   started_at: Date;
   duration_ms: number;
   billable: boolean;
+  tags: string[];
+  task_id: string | null;
+  hourly_rate: number;
+  cost_rate: number;
+  currency: string;
+  invoice_id: string | null;
 };
 
 export type BoardTaskRow = {
@@ -80,6 +91,11 @@ export function projectFromRow(row: ProjectRow): Project {
     rate: toNumber(row.rate),
     color: row.color,
     status: row.status,
+    budgetHours: toNumber(row.budget_hours),
+    budgetAmount: toNumber(row.budget_amount),
+    costRate: toNumber(row.cost_rate),
+    deadline: row.deadline?.toISOString().slice(0, 10) ?? null,
+    notes: row.notes,
   };
 }
 
@@ -93,7 +109,13 @@ export function entryFromRow(row: TimeEntryRow, locked = false): TimeEntry {
     startedAt: row.started_at.toISOString(),
     durationMs: row.duration_ms,
     billable: row.billable,
-    locked,
+    locked: locked || !!row.invoice_id,
+    tags: row.tags ?? [],
+    taskId: row.task_id,
+    hourlyRate: toNumber(row.hourly_rate),
+    costRate: toNumber(row.cost_rate),
+    currency: row.currency,
+    invoiceId: row.invoice_id,
   };
 }
 
@@ -152,8 +174,10 @@ export function settingsFromRow(row: SettingsRow): WorkspaceSettings {
   };
 }
 
-const PROJECT_COLUMNS = "id, name, client, client_id, rate, color, status";
-const TIME_ENTRY_COLUMNS = "id, project_id, user_id, task, notes, started_at, duration_ms, billable";
+const PROJECT_COLUMNS =
+  "id, name, client, client_id, rate, color, status, budget_hours, budget_amount, cost_rate, deadline, notes";
+const TIME_ENTRY_COLUMNS =
+  "id, project_id, user_id, task, notes, started_at, duration_ms, billable, tags, task_id, hourly_rate, cost_rate, currency, invoice_id";
 const TASK_COLUMNS = "id, project_id, title, status, estimate_hours";
 const CLIENT_COLUMNS =
   "id, name, contact_name, contact_email, address, currency, default_rate, notes, archived_at";
@@ -184,7 +208,7 @@ type EntryWithLockRow = TimeEntryRow & { locked: boolean };
 export async function listEntries(organizationId: string) {
   const result = await query<EntryWithLockRow>(
     `select te.id, te.project_id, te.user_id, te.task, te.notes,
-            te.started_at, te.duration_ms, te.billable,
+            te.started_at, te.duration_ms, te.billable, te.tags, te.task_id, te.hourly_rate, te.cost_rate, te.currency, te.invoice_id,
             exists (
               select 1
               from timesheet_periods tp
@@ -200,7 +224,9 @@ export async function listEntries(organizationId: string) {
      order by te.started_at desc, te.created_at desc`,
     [organizationId],
   );
-  return result.rows.map((row: EntryWithLockRow) => entryFromRow(row, row.locked));
+  return result.rows.map((row: EntryWithLockRow) =>
+    entryFromRow(row, row.locked),
+  );
 }
 
 export async function listTasks(organizationId: string) {
@@ -233,7 +259,10 @@ export function currentPeriodWindow(now = new Date()): PeriodWindow {
   start.setUTCDate(date.getUTCDate() - offsetToMonday);
   const end = new Date(start);
   end.setUTCDate(start.getUTCDate() + 6);
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+  };
 }
 
 export async function getOrCreateCurrentPeriod(
@@ -241,21 +270,23 @@ export async function getOrCreateCurrentPeriod(
   userId: string,
   userEmail: string | null,
 ) {
-  const window = currentPeriodWindow();
-  const result = await query<TimesheetPeriodRow>(
-    `insert into timesheet_periods (organization_id, user_id, period_start, period_end)
+  return tenantMutation(organizationId, async () => {
+    const window = currentPeriodWindow();
+    const result = await query<TimesheetPeriodRow>(
+      `insert into timesheet_periods (organization_id, user_id, period_start, period_end)
      values ($1, $2, $3, $4)
      on conflict (organization_id, user_id, period_start)
      do update set updated_at = now()
      returning ${PERIOD_COLUMNS}`,
-    [organizationId, userId, window.start, window.end],
-  );
-  await refreshPeriodTotals(organizationId, userId, window.start);
-  const refreshed = await query<TimesheetPeriodRow>(
-    `select ${PERIOD_COLUMNS} from timesheet_periods where id = $1`,
-    [result.rows[0].id],
-  );
-  return periodFromRow(refreshed.rows[0], userEmail);
+      [organizationId, userId, window.start, window.end],
+    );
+    await refreshPeriodTotals(organizationId, userId, window.start);
+    const refreshed = await query<TimesheetPeriodRow>(
+      `select ${PERIOD_COLUMNS} from timesheet_periods where id = $1`,
+      [result.rows[0].id],
+    );
+    return periodFromRow(refreshed.rows[0], userEmail);
+  });
 }
 
 export async function refreshPeriodTotals(
@@ -304,16 +335,23 @@ export async function getWorkspace(
   userId: string,
   userEmail: string | null,
 ) {
-  const [projects, entries, tasks, clients, settings, currentPeriod] = await Promise.all([
-    listProjects(organizationId),
-    listEntries(organizationId),
-    listTasks(organizationId),
-    listClients(organizationId),
-    getSettings(organizationId),
-    getOrCreateCurrentPeriod(organizationId, userId, userEmail),
-  ]);
+  const [projects, entries, tasks, clients, settings, currentPeriod] =
+    await Promise.all([
+      listProjects(organizationId),
+      listEntries(organizationId),
+      listTasks(organizationId),
+      listClients(organizationId),
+      getSettings(organizationId),
+      getOrCreateCurrentPeriod(organizationId, userId, userEmail),
+    ]);
 
   return { projects, entries, tasks, clients, settings, currentPeriod };
 }
 
-export { PROJECT_COLUMNS, TIME_ENTRY_COLUMNS, TASK_COLUMNS, CLIENT_COLUMNS, PERIOD_COLUMNS };
+export {
+  PROJECT_COLUMNS,
+  TIME_ENTRY_COLUMNS,
+  TASK_COLUMNS,
+  CLIENT_COLUMNS,
+  PERIOD_COLUMNS,
+};

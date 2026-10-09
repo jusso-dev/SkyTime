@@ -1,3 +1,4 @@
+import { optNumber, requireDateOnly } from "@/lib/validation";
 import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { NotFoundError, ValidationError } from "@/lib/errors";
@@ -19,7 +20,10 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   const id = requireUuid(params.id, "Project id");
   const body = await readJson(request);
 
-  if (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) {
+  if (
+    body.name !== undefined &&
+    (typeof body.name !== "string" || !body.name.trim())
+  ) {
     throw new ValidationError("Project name is required");
   }
 
@@ -31,7 +35,8 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   const existing = current.rows[0];
   const before = projectFromRow(existing);
 
-  let clientName = body.client === undefined ? existing.client : String(body.client).trim();
+  let clientName =
+    body.client === undefined ? existing.client : String(body.client).trim();
   let clientId: string | null = existing.client_id;
   if (body.clientId !== undefined) {
     clientId = optUuid(body.clientId, "Client id");
@@ -48,18 +53,37 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
 
   const result = await query<ProjectRow>(
     `update projects
-     set name = $2, client = $3, client_id = $4, rate = $5, color = $6, status = $7, updated_at = now()
+     set name = $2, client = $3, client_id = $4, rate = $5, color = $6, status = $7, budget_hours=$9, budget_amount=$10, cost_rate=$11, deadline=$12, notes=$13, updated_at = now()
      where id = $1 and organization_id = $8
      returning ${PROJECT_COLUMNS}`,
     [
       id,
-      typeof body.name === "string" && body.name.trim() ? body.name.trim() : existing.name,
+      typeof body.name === "string" && body.name.trim()
+        ? body.name.trim()
+        : existing.name,
       clientName || "No client",
       clientId,
-      body.rate === undefined ? existing.rate : Number(body.rate) || 0,
-      typeof body.color === "string" && body.color ? body.color : existing.color,
-      body.status === "Paused" || body.status === "Active" ? body.status : existing.status,
+      body.rate === undefined
+        ? existing.rate
+        : (optNumber(body.rate, "Rate") ?? 0),
+      typeof body.color === "string" && body.color
+        ? body.color
+        : existing.color,
+      body.status === "Paused" || body.status === "Active"
+        ? body.status
+        : existing.status,
       tenant.organization.id,
+      optNumber(body.budgetHours, "Budget hours") ?? existing.budget_hours,
+      optNumber(body.budgetAmount, "Budget amount") ?? existing.budget_amount,
+      optNumber(body.costRate, "Cost rate") ?? existing.cost_rate,
+      body.deadline === undefined
+        ? existing.deadline
+        : body.deadline
+          ? requireDateOnly(body.deadline, "Deadline")
+          : null,
+      body.notes === undefined
+        ? existing.notes
+        : String(body.notes).slice(0, 5000),
     ],
   );
 
@@ -77,22 +101,32 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   return updated;
 });
 
-export const DELETE = withTenant<Params>(async ({ tenant, request, params }) => {
-  const id = requireUuid(params.id, "Project id");
-  const result = await query<ProjectRow>(
-    `delete from projects where id = $1 and organization_id = $2 returning ${PROJECT_COLUMNS}`,
-    [id, tenant.organization.id],
-  );
-  if (!result.rows[0]) throw new NotFoundError("Project not found");
-  const removed = projectFromRow(result.rows[0]);
-  await recordAudit({
-    tenant,
-    request,
-    action: "delete",
-    entityType: "project",
-    entityId: removed.id,
-    summary: `Deleted project ${removed.name}`,
-    before: removed,
-  });
-  return { ok: true };
-});
+export const DELETE = withTenant<Params>(
+  async ({ tenant, request, params }) => {
+    const id = requireUuid(params.id, "Project id");
+    const usage = await query(
+      "select id from time_entries where project_id=$1 and organization_id=$2 limit 1",
+      [id, tenant.organization.id],
+    );
+    if (usage.rows[0])
+      throw new ValidationError(
+        "This project has time entries. Pause it to preserve history.",
+      );
+    const result = await query<ProjectRow>(
+      `delete from projects where id = $1 and organization_id = $2 returning ${PROJECT_COLUMNS}`,
+      [id, tenant.organization.id],
+    );
+    if (!result.rows[0]) throw new NotFoundError("Project not found");
+    const removed = projectFromRow(result.rows[0]);
+    await recordAudit({
+      tenant,
+      request,
+      action: "delete",
+      entityType: "project",
+      entityId: removed.id,
+      summary: `Deleted project ${removed.name}`,
+      before: removed,
+    });
+    return { ok: true };
+  },
+);

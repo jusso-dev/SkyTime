@@ -1,6 +1,13 @@
+import { isTrustedOrigin } from "@/lib/request-origin";
+import { tenantMutation } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { captureError, errorResponse, HttpError } from "@/lib/errors";
-import { requireAdmin, requireTenant, requireUser, type Tenant } from "@/lib/tenant";
+import {
+  requireAdmin,
+  requireTenant,
+  requireUser,
+  type Tenant,
+} from "@/lib/tenant";
 
 type RouteHandler<TParams, TResult> = (ctx: {
   request: Request;
@@ -22,11 +29,14 @@ type UserHandler<TParams, TResult> = (ctx: {
 type RouteContext<TParams> = { params: Promise<TParams> } | undefined;
 
 function toResponse<T>(result: T) {
-  if (result instanceof NextResponse || result instanceof Response) return result;
+  if (result instanceof NextResponse || result instanceof Response)
+    return result;
   return NextResponse.json(result);
 }
 
-async function resolveParams<TParams>(context: RouteContext<TParams>): Promise<TParams> {
+async function resolveParams<TParams>(
+  context: RouteContext<TParams>,
+): Promise<TParams> {
   if (!context) return {} as TParams;
   return (await context.params) ?? ({} as TParams);
 }
@@ -57,11 +67,37 @@ export function withTenant<TParams = Record<string, never>, TResult = unknown>(
     try {
       const { tenant, error } = await requireTenant(request);
       if (error || !tenant) return error;
+      if (
+        tenant.tokenScope === "read" &&
+        !["GET", "HEAD"].includes(request.method)
+      ) {
+        return NextResponse.json(
+          { error: "This API token is read-only" },
+          { status: 403 },
+        );
+      }
+      const origin = request.headers.get("origin");
+      if (
+        !tenant.tokenScope &&
+        !["GET", "HEAD"].includes(request.method) &&
+        origin &&
+        !isTrustedOrigin(request)
+      ) {
+        return NextResponse.json(
+          { error: "Cross-origin mutation rejected" },
+          { status: 403 },
+        );
+      }
       if (options.admin) {
         const adminError = requireAdmin(tenant);
         if (adminError) return adminError;
       }
-      return toResponse(await handler({ request, params, tenant }));
+      const work = () => handler({ request, params, tenant });
+      return toResponse(
+        await (["GET", "HEAD"].includes(request.method)
+          ? work()
+          : tenantMutation(tenant.organization.id, work)),
+      );
     } catch (error) {
       await captureError(error, {
         request,

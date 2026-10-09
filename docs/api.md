@@ -1,16 +1,18 @@
-# SkyTime API
+# API and MCP v1
 
-The SkyTime API is a JSON HTTP interface exposed by the Next.js application.
-All endpoints under `/api/*` are versioned implicitly as **v1**; we will move
-to explicit `/api/v1/*` paths only when a breaking change ships.
+The current automation surface is `/api/v1/*`, generated from the same action registry as `/api/mcp`. See [setup, authentication, schemas and examples](mcp.md). The live `GET /api/v1/actions` catalog and `GET /api/v1/openapi.json` are authoritative. All requests require a browser session or an organization-scoped bearer token, except the health endpoint.
+
+The unversioned endpoints below remain compatible with the existing UI. Both surfaces now enforce tenant relationships, captured entry rates, approval/invoice locks and transactional audit records. New features use the versioned surface. Account authentication/MFA and organization onboarding retain their existing endpoints.
+
+## Legacy endpoint reference
 
 ## Conventions
 
-- **Auth.** Cookie-based sessions issued by `/api/auth/*` (better-auth).
+- **Auth.** Cookie-based sessions issued by `/api/auth/*` (better-auth), or personal bearer tokens for tenant endpoints.
   All non-auth endpoints require a signed-in user and an organization
   membership, unless noted as admin-only.
 - **Tenancy.** Every record is scoped to the caller's organization. Cross-org
-  access returns `404 not_found`.
+  references are rejected; item lookups return `404 not_found`.
 - **Errors.** Failed requests return `{ "error": string, "code": string }`
   with the HTTP status set to the appropriate 4xx/5xx code. Common codes are
   `validation_failed`, `not_found`, `forbidden`, `conflict`, and `server_error`.

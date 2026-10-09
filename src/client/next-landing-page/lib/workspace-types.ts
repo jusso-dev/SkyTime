@@ -6,6 +6,11 @@ export type Project = {
   rate: number;
   color: string;
   status: "Active" | "Paused";
+  budgetHours?: number;
+  budgetAmount?: number;
+  costRate?: number;
+  deadline?: string | null;
+  notes?: string;
 };
 
 export type TimeEntry = {
@@ -18,6 +23,12 @@ export type TimeEntry = {
   durationMs: number;
   billable: boolean;
   locked: boolean;
+  tags?: string[];
+  taskId?: string | null;
+  hourlyRate?: number;
+  costRate?: number;
+  currency?: string;
+  invoiceId?: string | null;
 };
 
 export type BoardStatus = "Backlog" | "Today" | "Doing" | "Done";
@@ -42,7 +53,8 @@ export type Client = {
   archivedAt: string | null;
 };
 
-export type TimesheetPeriodStatus = "draft" | "submitted" | "approved" | "rejected";
+export type TimesheetPeriodStatus =
+  "draft" | "submitted" | "approved" | "rejected";
 
 export type TimesheetPeriod = {
   id: string;

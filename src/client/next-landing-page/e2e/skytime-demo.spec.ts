@@ -2,7 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
-const screenshotDir = path.resolve(process.cwd(), "../../..", "docs/screenshots");
+const screenshotDir = path.resolve(
+  process.cwd(),
+  "../../..",
+  "docs/screenshots",
+);
 
 const views = [
   { id: "dashboard", label: "Dashboard" },
@@ -54,7 +58,9 @@ async function seedWorkspace(page: Page, label: string) {
 
   await page.getByLabel("Organization name").fill(`SkyTime Demo ${label}`);
   await page.getByRole("button", { name: "Create organization" }).click();
-  await expect(page.getByText("Track time without losing the workday.")).toBeVisible();
+  await expect(
+    page.getByText("Track time without losing the workday."),
+  ).toBeVisible();
 
   await switchView(page, "Projects");
   for (const project of projects) {
@@ -66,11 +72,15 @@ async function seedWorkspace(page: Page, label: string) {
   }
 
   const workspace = await (await page.request.get("/api/workspace")).json();
-  const projectId = (name: string) => workspace.projects.find((project: { name: string }) => project.name === name)?.id;
+  const projectId = (name: string) =>
+    workspace.projects.find(
+      (project: { name: string }) => project.name === name,
+    )?.id;
   const discoveryId = projectId("NAILSMA Discovery");
   const portalId = projectId("Civic Cloud Portal");
   const opsId = projectId("Internal Operations");
-  if (!discoveryId || !portalId || !opsId) throw new Error("Demo project seeding failed");
+  if (!discoveryId || !portalId || !opsId)
+    throw new Error("Demo project seeding failed");
 
   const today = new Date();
   const isoAt = (daysAgo: number, hour: number) => {
@@ -84,7 +94,8 @@ async function seedWorkspace(page: Page, label: string) {
     {
       projectId: discoveryId,
       task: "Firestore configuration",
-      notes: "Created Firebase project config, auth settings, and Firestore collections for the field counter workflow.",
+      notes:
+        "Created Firebase project config, auth settings, and Firestore collections for the field counter workflow.",
       startedAt: isoAt(0, 9),
       durationMs: 2 * 60 * 60 * 1000,
       billable: true,
@@ -92,7 +103,8 @@ async function seedWorkspace(page: Page, label: string) {
     {
       projectId: discoveryId,
       task: "Stakeholder report",
-      notes: "Prepared project time notes and reconciled billable tasks for May reporting.",
+      notes:
+        "Prepared project time notes and reconciled billable tasks for May reporting.",
       startedAt: isoAt(0, 13),
       durationMs: 90 * 60 * 1000,
       billable: true,
@@ -100,7 +112,8 @@ async function seedWorkspace(page: Page, label: string) {
     {
       projectId: portalId,
       task: "Timesheet export QA",
-      notes: "Validated CSV and PDF export formatting, totals, and GST calculations.",
+      notes:
+        "Validated CSV and PDF export formatting, totals, and GST calculations.",
       startedAt: isoAt(1, 10),
       durationMs: 2.5 * 60 * 60 * 1000,
       billable: true,
@@ -108,7 +121,8 @@ async function seedWorkspace(page: Page, label: string) {
     {
       projectId: opsId,
       task: "Weekly planning",
-      notes: "Reviewed board priorities and reminder cadence for the internal workspace.",
+      notes:
+        "Reviewed board priorities and reminder cadence for the internal workspace.",
       startedAt: isoAt(2, 11),
       durationMs: 45 * 60 * 1000,
       billable: false,
@@ -120,10 +134,30 @@ async function seedWorkspace(page: Page, label: string) {
   }
 
   const tasks = [
-    { projectId: discoveryId, title: "Prepare Firebase security rules", status: "Doing", estimateHours: 3 },
-    { projectId: discoveryId, title: "Review client export wording", status: "Today", estimateHours: 1.5 },
-    { projectId: portalId, title: "Polish PDF report header", status: "Done", estimateHours: 2 },
-    { projectId: opsId, title: "Invite finance reviewer", status: "Backlog", estimateHours: 1 },
+    {
+      projectId: discoveryId,
+      title: "Prepare Firebase security rules",
+      status: "Doing",
+      estimateHours: 3,
+    },
+    {
+      projectId: discoveryId,
+      title: "Review client export wording",
+      status: "Today",
+      estimateHours: 1.5,
+    },
+    {
+      projectId: portalId,
+      title: "Polish PDF report header",
+      status: "Done",
+      estimateHours: 2,
+    },
+    {
+      projectId: opsId,
+      title: "Invite finance reviewer",
+      status: "Backlog",
+      estimateHours: 1,
+    },
   ];
 
   for (const task of tasks) {
@@ -132,10 +166,16 @@ async function seedWorkspace(page: Page, label: string) {
 
   await page.reload();
   await hideDevTools(page);
-  await expect(page.getByText("Track time without losing the workday.")).toBeVisible();
+  await expect(
+    page.getByText("Track time without losing the workday."),
+  ).toBeVisible();
 }
 
-async function captureViews(page: Page, device: "desktop" | "mobile", theme: "light" | "dark") {
+async function captureViews(
+  page: Page,
+  device: "desktop" | "mobile",
+  theme: "light" | "dark",
+) {
   for (const view of views) {
     await hideDevTools(page);
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -143,7 +183,10 @@ async function captureViews(page: Page, device: "desktop" | "mobile", theme: "li
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(250);
     await page.screenshot({
-      path: path.join(screenshotDir, `skytime-${device}-${theme}-${view.id}.png`),
+      path: path.join(
+        screenshotDir,
+        `skytime-${device}-${theme}-${view.id}.png`,
+      ),
       fullPage: device === "desktop",
     });
   }
@@ -166,17 +209,38 @@ async function hideDevTools(page: Page) {
 
 async function switchView(page: Page, label: string) {
   const width = page.viewportSize()?.width ?? 1440;
-  const nav = page.getByTestId(width < 1024 ? "mobile-nav" : "desktop-nav");
-  await nav.getByRole("button", { name: label, exact: true }).evaluate((button) => (button as HTMLButtonElement).click());
-  if (label === "Dashboard") await expect(page.getByText("Current timer")).toBeVisible();
-  if (label === "Projects") await expect(page.getByRole("heading", { name: "Create project" })).toBeVisible();
-  if (label === "Board") await expect(page.getByRole("heading", { name: "Task board" })).toBeVisible();
-  if (label === "Timesheets") await expect(page.getByRole("heading", { name: "Timesheets" })).toBeVisible();
-  if (label === "Settings") await expect(page.getByRole("heading", { name: "Multi-factor authentication" })).toBeVisible();
+  if (width < 1024)
+    await page.getByLabel("Workspace section").selectOption({ label });
+  else
+    await page
+      .getByTestId("desktop-nav")
+      .getByRole("button", { name: label, exact: true })
+      .click();
+  if (label === "Dashboard")
+    await expect(page.getByText("Current timer")).toBeVisible();
+  if (label === "Projects")
+    await expect(
+      page.getByRole("heading", { name: "Create project" }),
+    ).toBeVisible();
+  if (label === "Board")
+    await expect(
+      page.getByRole("heading", { name: "Task board" }),
+    ).toBeVisible();
+  if (label === "Timesheets")
+    await expect(
+      page.getByRole("heading", { name: "Timesheets", level: 1 }),
+    ).toBeVisible();
+  if (label === "Settings")
+    await expect(
+      page.getByRole("heading", { name: "Multi-factor authentication" }),
+    ).toBeVisible();
 }
 
 async function toggleTheme(page: Page, nextTheme: "light" | "dark") {
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.locator(`button[aria-label="Switch to ${nextTheme} mode"]:visible`).first().click({ force: true });
+  await page
+    .locator(`button[aria-label="Switch to ${nextTheme} mode"]:visible`)
+    .first()
+    .click({ force: true });
   await expect(page.locator("html")).toHaveAttribute("data-theme", nextTheme);
 }

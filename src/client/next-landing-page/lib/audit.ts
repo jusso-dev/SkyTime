@@ -22,7 +22,16 @@ export type AuditEntityType =
   | "invite"
   | "organization"
   | "settings"
-  | "user";
+  | "user"
+  | "api_token"
+  | "timer"
+  | "tag"
+  | "expense"
+  | "invoice"
+  | "saved_report"
+  | "branding"
+  | "allocation"
+  | "time_off";
 
 export type RecordAuditOptions = {
   tenant: Tenant;
@@ -36,30 +45,34 @@ export type RecordAuditOptions = {
 };
 
 export async function recordAudit(options: RecordAuditOptions) {
-  const { tenant, request, action, entityType, entityId, summary, before, after } = options;
-  try {
-    await query(
-      `insert into audit_log
+  const {
+    tenant,
+    request,
+    action,
+    entityType,
+    entityId,
+    summary,
+    before,
+    after,
+  } = options;
+  await query(
+    `insert into audit_log
         (organization_id, user_id, user_email, action, entity_type, entity_id, summary, before_data, after_data, ip, user_agent)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [
-        tenant.organization.id,
-        tenant.user.id,
-        tenant.user.email,
-        action,
-        entityType,
-        entityId ?? null,
-        summary,
-        before === undefined ? null : JSON.stringify(before),
-        after === undefined ? null : JSON.stringify(after),
-        request ? clientIp(request) : null,
-        request?.headers.get("user-agent") ?? null,
-      ],
-    );
-  } catch (error) {
-    // Auditing must never crash a mutation. Log and continue.
-    console.error("[skytime] audit write failed", error);
-  }
+    [
+      tenant.organization.id,
+      tenant.user.id,
+      tenant.user.email,
+      action,
+      entityType,
+      entityId ?? null,
+      summary,
+      before === undefined ? null : JSON.stringify(before),
+      after === undefined ? null : JSON.stringify(after),
+      request ? clientIp(request) : null,
+      request?.headers.get("user-agent") ?? null,
+    ],
+  );
 }
 
 function clientIp(request: Request): string | null {

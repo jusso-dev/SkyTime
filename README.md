@@ -11,31 +11,24 @@ workspace data.
 
 ## Features
 
-- **Time tracking.** Start/stop timer, manual entries, billable flag, project
-  rates, weekly/monthly/financial year/custom period filters, CSV and PDF
-  export with configurable GST.
-- **Clients & projects.** Clients as first-class entities (contact, address,
-  currency, default rate). Projects reference a client so renames flow through
-  to historical entries.
-- **Approvals.** Weekly timesheet periods per user with `draft → submitted →
-  approved/rejected` lifecycle. Entries inside an approved week are locked
-  until an admin reopens the period.
-- **Audit log.** Every mutating action on tenant data is recorded
-  (`who, what, when, before, after`) and visible to admins in-app and via
-  `/api/audit-log`.
-- **Error log.** Server-side exceptions are captured to `error_log` and
-  surfaced to admins for incident triage.
-- **Multi-tenant.** Organizations with admin/member roles, invite flow with
-  email delivery via Resend, two-factor authentication via better-auth.
-- **API.** Documented JSON API under `/api/*` (current v1 surface) — see
-  [`docs/api.md`](docs/api.md). `/api/v1/health` provides a liveness probe.
+- **MCP and API first.** A shared action registry exposes time tracking, clients, projects, tasks, approvals, reports, billing and planning through REST and Streamable HTTP MCP. Includes an action directory, OpenAPI 3.1, scoped personal tokens and transactional audit logs. See [MCP setup](docs/mcp.md).
+- **Time tracking.** Persistent cross-device timers, manual entries, duplicate/resume, tags, task links, atomic bulk edits and imports, captured rates/currencies, and approved/invoiced entry locks.
+- **Projects and clients.** Contact and billing details, project templates, rates and costs, hours/fee budgets, deadlines, notes, task boards and profitability/budget views.
+- **Reporting.** Filter by period, project, client, member, tag and billing state; group by project/client/member/day/tag; save views; inspect daily grids; round entries for reporting. Export detailed multipage PDFs with the SkyTime logo or your uploaded logo, business identity and tax settings, plus spreadsheet-safe CSVs.
+- **Billing.** Project expenses and invoices from unbilled time/expenses. Draft, issued, paid and void lifecycle; immutable line/client snapshots; atomic reservation prevents double billing; branded invoice PDFs.
+- **Planning.** Schedule project work, configure weekly member capacity, compare planned/actual utilization and overbooking, and request/review time off.
+- **Approvals and team controls.** Weekly submission/review/reopening, admin/member roles, invitations, two-factor authentication, audit/error logs and strict tenant validation.
+
+See the [feature review and explicit limits](docs/feature-research.md). This expansion does not claim full parity with every edition of Toggl, Harvest or Clockify.
+
+[Sample branded report](docs/reports/skytime-sample-report.pdf) · [API reference](docs/api.md) · [MCP setup](docs/mcp.md)
 
 ## Local development
 
 ```bash
 docker compose up -d
 cd src/client/next-landing-page
-npm install
+npm ci
 npm run auth:migrate   # better-auth tables
 npm run db:migrate     # SkyTime schema
 npm run dev

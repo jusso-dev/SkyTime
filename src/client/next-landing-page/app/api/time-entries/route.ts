@@ -1,8 +1,16 @@
+import { requireProject, entryTags, duration, optUuid } from "@/lib/validation";
 import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import { withTenant } from "@/lib/route";
-import { optBoolean, optString, readJson, requirePositiveNumber, requireString, requireUuid } from "@/lib/validation";
+import {
+  optBoolean,
+  optString,
+  readJson,
+  requirePositiveNumber,
+  requireString,
+  requireUuid,
+} from "@/lib/validation";
 import {
   currentPeriodWindow,
   entryFromRow,
@@ -22,6 +30,7 @@ export const GET = withTenant(async ({ tenant }) => {
 export const POST = withTenant(async ({ tenant, request }) => {
   const body = await readJson(request);
   const projectId = requireUuid(body.projectId, "Project");
+  await requireProject(tenant.organization.id, projectId);
   const task = requireString(body.task, "Task", 500);
   const notes = optString(body.notes, "Notes", 5000);
   const startedAtRaw = requireString(body.startedAt, "Start time", 64);
@@ -29,17 +38,19 @@ export const POST = withTenant(async ({ tenant, request }) => {
   if (Number.isNaN(startedAt.getTime())) {
     throw new ValidationError("Start time is invalid");
   }
-  const durationMs = Math.round(requirePositiveNumber(body.durationMs, "Duration"));
+  const durationMs = duration(body.durationMs);
   const billable = optBoolean(body.billable, "Billable") ?? true;
 
   if (await isEntryLocked(tenant.organization.id, tenant.user.id, startedAt)) {
-    throw new ValidationError("This week is approved and locked. Ask an admin to reopen it.");
+    throw new ValidationError(
+      "This week is approved and locked. Ask an admin to reopen it.",
+    );
   }
 
   const result = await query<TimeEntryRow>(
     `insert into time_entries
-        (organization_id, project_id, user_id, task, notes, started_at, duration_ms, billable)
-     values ($1, $2, $3, $4, $5, $6, $7, $8)
+        (organization_id, project_id, user_id, task, notes, started_at, duration_ms, billable, tags, task_id)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      returning ${TIME_ENTRY_COLUMNS}`,
     [
       tenant.organization.id,
@@ -50,12 +61,18 @@ export const POST = withTenant(async ({ tenant, request }) => {
       startedAt.toISOString(),
       durationMs,
       billable,
+      entryTags(body.tags),
+      optUuid(body.taskId, "Task id"),
     ],
   );
 
   const entry = entryFromRow(result.rows[0]);
   const window = currentPeriodWindow(startedAt);
-  await refreshPeriodTotals(tenant.organization.id, tenant.user.id, window.start);
+  await refreshPeriodTotals(
+    tenant.organization.id,
+    tenant.user.id,
+    window.start,
+  );
 
   await recordAudit({
     tenant,
@@ -67,5 +84,8 @@ export const POST = withTenant(async ({ tenant, request }) => {
     after: entry,
   });
 
-  return new Response(JSON.stringify(entry), { status: 201, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(entry), {
+    status: 201,
+    headers: { "content-type": "application/json" },
+  });
 });

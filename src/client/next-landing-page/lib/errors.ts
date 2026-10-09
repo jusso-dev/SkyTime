@@ -1,3 +1,4 @@
+import { requestContext } from "@/lib/request-context";
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
@@ -45,9 +46,14 @@ export type ErrorContext = {
 };
 
 export async function captureError(error: unknown, ctx: ErrorContext = {}) {
-  const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
-  const stack = error instanceof Error ? error.stack ?? null : null;
-  const status = ctx.status ?? (error instanceof HttpError ? error.status : 500);
+  const tenantContext = ctx.request
+    ? requestContext.get(ctx.request)
+    : undefined;
+  const message =
+    error instanceof Error ? error.message : String(error ?? "Unknown error");
+  const stack = error instanceof Error ? (error.stack ?? null) : null;
+  const status =
+    ctx.status ?? (error instanceof HttpError ? error.status : 500);
   const method = ctx.request?.method ?? null;
   const path = ctx.request ? safePath(ctx.request.url) : null;
 
@@ -55,15 +61,18 @@ export async function captureError(error: unknown, ctx: ErrorContext = {}) {
   // Validation errors are noisy but expected — surface them as warn-level.
   const isClientError = status >= 400 && status < 500;
   const logger = isClientError ? console.warn : console.error;
-  logger(`[skytime] ${method ?? "?"} ${path ?? "?"} → ${status} ${message}`, error);
+  logger(
+    `[skytime] ${method ?? "?"} ${path ?? "?"} → ${status} ${message}`,
+    error,
+  );
 
   try {
     await query(
       `insert into error_log (organization_id, user_id, level, message, stack, context, path, method, status_code)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
-        ctx.organizationId ?? null,
-        ctx.userId ?? null,
+        ctx.organizationId ?? tenantContext?.organizationId ?? null,
+        ctx.userId ?? tenantContext?.userId ?? null,
         isClientError ? "warn" : "error",
         message,
         stack,
@@ -81,9 +90,38 @@ export async function captureError(error: unknown, ctx: ErrorContext = {}) {
 
 export function errorResponse(error: unknown) {
   if (error instanceof HttpError) {
-    return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    return NextResponse.json(
+      { error: error.message, code: error.code },
+      { status: error.status },
+    );
   }
-  return NextResponse.json({ error: "Server error", code: "server_error" }, { status: 500 });
+  if (error && typeof error === "object" && "code" in error) {
+    if (error.code === "23514")
+      return NextResponse.json(
+        {
+          error: "The change violates a tenant, approval, or billing lock",
+          code: "record_locked",
+        },
+        { status: 409 },
+      );
+    if (error.code === "23505")
+      return NextResponse.json(
+        {
+          error: "A record with that identity already exists",
+          code: "conflict",
+        },
+        { status: 409 },
+      );
+    if (error.code === "23503")
+      return NextResponse.json(
+        { error: "This record is referenced by other records", code: "in_use" },
+        { status: 409 },
+      );
+  }
+  return NextResponse.json(
+    { error: "Server error", code: "server_error" },
+    { status: 500 },
+  );
 }
 
 function safePath(url: string) {
