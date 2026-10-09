@@ -7,7 +7,11 @@ export default defineConfig({
     timeout: 10_000,
   },
   fullyParallel: false,
-  reporter: [["list"]],
+  forbidOnly: !!process.env.CI,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: process.env.CI
+    ? [["list"], ["html", { open: "never" }]]
+    : [["list"]],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3100",
     trace: "retain-on-failure",
@@ -21,9 +25,11 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_SKIP_WEB_SERVER
     ? undefined
     : {
-        command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
+        command: process.env.CI
+          ? "npm run start -- --hostname 127.0.0.1 --port 3100"
+          : "npm run dev -- --hostname 127.0.0.1 --port 3100",
         url: "http://127.0.0.1:3100",
-        reuseExistingServer: true,
+        reuseExistingServer: !process.env.CI,
         timeout: 120_000,
         env: {
           ...process.env,

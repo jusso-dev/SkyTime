@@ -4,13 +4,13 @@
   "author": "SkyTime",
   "private": true,
   "scripts": {
-    "auth:migrate": "npx auth@latest migrate --yes",
+    "auth:migrate": "auth migrate --yes",
     "db:migrate": "node scripts/migrate.mjs",
     "dev": "next dev",
     "build": "next build",
     "demo:screenshots": "playwright test e2e/skytime-demo.spec.ts --project=chromium",
     "start": "next start",
-    "type-check": "tsc --noEmit",
+    "type-check": "next typegen && tsc --noEmit",
     "test:integration": "playwright test e2e/automation.spec.ts --project=chromium",
     "test": "npm run test:integration"
   },
@@ -42,6 +42,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/svg-to-pdfkit": "^0.1.4",
+    "auth": "1.7.7",
     "pdfjs-dist": "^6.4.299",
     "prettier": "^3.9.9",
     "tailwindcss": "^4.3.0",

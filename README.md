@@ -37,6 +37,12 @@ npm run dev
 The app boots at <http://localhost:3000>. Sign up creates a user; the first
 sign-in prompts for an organization name.
 
+## Continuous integration
+
+[CI](.github/workflows/ci.yml) runs on pushes to `main` and pull requests. It installs the lockfile with Node.js 22, audits dependencies for high/critical vulnerabilities, generates Next.js types, checks TypeScript, builds production assets, and tests fresh and repeatable migrations against disposable PostgreSQL 18. The 14 API/MCP/browser integration tests and two desktop/mobile smoke tests run against the production server. Failed browser runs retain reports and traces for seven days. Trivy scanning runs in its existing workflow.
+
+To reproduce CI tests locally, set `DATABASE_URL` to a dedicated migrated test database, configure `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` for `http://127.0.0.1:3100`, run `npm run build`, then run `CI=1 npm run test:integration` and `CI=1 npm run demo:screenshots` from the Next.js app directory. Each suite starts and stops its own production server.
+
 ## Optional integrations
 
 - **Google Places address autocomplete.** Set
