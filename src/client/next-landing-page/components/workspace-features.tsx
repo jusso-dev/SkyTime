@@ -119,11 +119,27 @@ async function download(path: string, filename: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-const today = () => new Date().toISOString().slice(0, 10);
-const money = (amount: number, currency: string) =>
-  new Intl.NumberFormat("en-AU", { style: "currency", currency }).format(
+const today = () => {
+  // Use the browser's local calendar date, not UTC: toISOString() returns
+  // yesterday's date for local mornings in timezones ahead of UTC (e.g. AEST),
+  // which would date invoices, expenses and report ranges a day early.
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
+const dayOffset = (days: number) => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+const money = (amount: number, currency: string) => {
+  // Intl throws RangeError for anything that is not a 3-letter code; client
+  // currency is free text on legacy data, so fall back instead of crashing
+  // the whole render.
+  const code = /^[A-Z]{3}$/.test(currency) ? currency : "AUD";
+  return new Intl.NumberFormat("en-AU", { style: "currency", currency: code }).format(
     amount,
   );
+};
 const hours = (ms: number) => (ms / 3600000).toFixed(2);
 export function ReportsView({
   projects,
@@ -1310,7 +1326,7 @@ export function BillingView({
     from: today().slice(0, 8) + "01",
     to: today(),
     issuedDate: today(),
-    dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+    dueDate: dayOffset(30),
     taxPercent: "10",
     notes: "",
   });
@@ -1729,9 +1745,7 @@ export function PlanningView({
   isAdmin: boolean;
 }) {
   const [from, setFrom] = useState(today());
-  const [to, setTo] = useState(
-    new Date(Date.now() + 6 * 86400000).toISOString().slice(0, 10),
-  );
+  const [to, setTo] = useState(dayOffset(6));
   const [workload, setWorkload] = useState<Workload[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [leave, setLeave] = useState<Leave[]>([]);

@@ -2,7 +2,14 @@ import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { NotFoundError } from "@/lib/errors";
 import { withTenant } from "@/lib/route";
-import { optNumber, optString, readJson, requireUuid } from "@/lib/validation";
+import {
+  optBoolean,
+  optCurrency,
+  optNumber,
+  optString,
+  readJson,
+  requireUuid,
+} from "@/lib/validation";
 import { CLIENT_COLUMNS, clientFromRow, type ClientRow } from "@/lib/workspace-repository";
 
 export const runtime = "nodejs";
@@ -28,15 +35,15 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   const contactName = body.contactName === undefined ? existing.contact_name : optString(body.contactName, "Contact name", 200);
   const contactEmail = body.contactEmail === undefined ? existing.contact_email : optString(body.contactEmail, "Contact email", 200);
   const address = body.address === undefined ? existing.address : optString(body.address, "Address", 500);
-  const currency = body.currency === undefined ? existing.currency : (optString(body.currency, "Currency", 8) || existing.currency).toUpperCase();
+  const currency =
+    body.currency === undefined
+      ? existing.currency
+      : optCurrency(body.currency, "Currency", existing.currency);
   const defaultRate = body.defaultRate === undefined ? Number(existing.default_rate) : optNumber(body.defaultRate, "Default rate") ?? 0;
   const notes = body.notes === undefined ? existing.notes : optString(body.notes, "Notes", 5000);
+  const archived = optBoolean(body.archived, "Archived");
   const archivedAt =
-    body.archived === undefined
-      ? existing.archived_at
-      : body.archived
-      ? new Date()
-      : null;
+    archived === undefined ? existing.archived_at : archived ? new Date() : null;
 
   const result = await query<ClientRow>(
     `update clients

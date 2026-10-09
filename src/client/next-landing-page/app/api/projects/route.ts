@@ -1,7 +1,7 @@
 import { optNumber, requireDateOnly } from "@/lib/validation";
 import { recordAudit } from "@/lib/audit";
 import { withTenant } from "@/lib/route";
-import { optString, optUuid, readJson, requireString } from "@/lib/validation";
+import { optColor, optString, optUuid, readJson, requireString } from "@/lib/validation";
 import { ValidationError } from "@/lib/errors";
 import { query } from "@/lib/db";
 import {
@@ -24,7 +24,7 @@ export const POST = withTenant(async ({ tenant, request }) => {
   const name = requireString(body.name, "Project name", 200);
   const clientId = optUuid(body.clientId, "Client id");
   let rate = body.rate === undefined ? 0 : (optNumber(body.rate, "Rate") ?? 0);
-  const color = optString(body.color, "Color", 80) || "oklch(0.56 0.13 155)";
+  const color = optColor(body.color, "Color", "oklch(0.56 0.13 155)");
   const status = body.status === "Paused" ? "Paused" : "Active";
 
   let clientName = optString(body.client, "Client", 200);

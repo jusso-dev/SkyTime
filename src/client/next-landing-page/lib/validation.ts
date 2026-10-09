@@ -55,6 +55,7 @@ export function optNumber(
   value: unknown,
   field: string,
   min = 0,
+  max = 99999999,
 ): number | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   const num = Number(value);
@@ -63,6 +64,9 @@ export function optNumber(
   }
   if (num < min) {
     throw new ValidationError(`${field} must be at least ${min}`);
+  }
+  if (num > max) {
+    throw new ValidationError(`${field} must be at most ${max}`);
   }
   return num;
 }
@@ -98,6 +102,35 @@ export async function readJson(
     if (error instanceof ValidationError) throw error;
     throw new ValidationError("Request body must be valid JSON");
   }
+}
+
+const CURRENCY_PATTERN = /^[A-Z]{3}$/;
+
+export function optCurrency(
+  value: unknown,
+  field: string,
+  fallback: string,
+): string {
+  if (value === undefined || value === null || value === "") return fallback;
+  const normalized = String(value).trim().toUpperCase();
+  if (!CURRENCY_PATTERN.test(normalized)) {
+    throw new ValidationError(`${field} must be a 3-letter currency code`);
+  }
+  return normalized;
+}
+
+// Colors render in CSS `background` values; keep them to plain color tokens so
+// values like url("https://…") cannot make every viewer's browser fetch a URL.
+const COLOR_PATTERN =
+  /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+|(oklch|rgb|rgba|hsl|hsla|lab|lch|color|light-dark|color-mix)\([\w\s.,%/#-]*\))$/;
+
+export function optColor(value: unknown, field: string, fallback: string) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const trimmed = String(value).trim();
+  if (trimmed.length > 80 || !COLOR_PATTERN.test(trimmed)) {
+    throw new ValidationError(`${field} must be a plain CSS color`);
+  }
+  return trimmed;
 }
 
 export async function requireProject(

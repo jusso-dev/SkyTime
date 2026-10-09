@@ -3,7 +3,13 @@ import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { withTenant } from "@/lib/route";
-import { optBoolean, readJson, requireUuid } from "@/lib/validation";
+import {
+  optBoolean,
+  optString,
+  readJson,
+  requireString,
+  requireUuid,
+} from "@/lib/validation";
 import {
   currentPeriodWindow,
   entryFromRow,
@@ -88,9 +94,11 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
       id,
       body.projectId ?? existing.project_id,
       typeof body.task === "string" && body.task.trim()
-        ? body.task.trim()
+        ? requireString(body.task, "Task", 500)
         : existing.task,
-      typeof body.notes === "string" ? body.notes.trim() : existing.notes,
+      typeof body.notes === "string"
+        ? optString(body.notes, "Notes", 5000)
+        : existing.notes,
       newStartedAt,
       body.durationMs === undefined
         ? existing.duration_ms

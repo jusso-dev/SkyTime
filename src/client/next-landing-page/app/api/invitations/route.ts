@@ -40,7 +40,12 @@ export const GET = withTenant(async ({ tenant }) => {
 export const POST = withTenant(async ({ tenant, request }) => {
   const body = await readJson(request);
   const email = String(body.email ?? "").trim().toLowerCase();
-  if (!email || !email.includes("@")) {
+  if (
+    !email ||
+    email.length > 320 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    /[\r\n,]/.test(email)
+  ) {
     throw new ValidationError("A valid invite email is required");
   }
   const role = body.role === "admin" ? "admin" : "member";

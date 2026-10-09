@@ -53,6 +53,84 @@ const entry = (overrides: Record<string, unknown> = {}) => ({
   tags: ["Design"],
   ...overrides,
 });
+// Pinned action registry: the MCP/catalog assertions compare against this
+// literal list so silently losing (or renaming) an action fails the suite
+// instead of passing against a shrunk registry.
+const EXPECTED_ACTIONS = [
+  "allocations_create",
+  "allocations_delete",
+  "allocations_list",
+  "audit_log_list",
+  "branding_get",
+  "branding_update",
+  "clients_archive",
+  "clients_create",
+  "clients_get",
+  "clients_list",
+  "clients_update",
+  "error_log_list",
+  "expenses_create",
+  "expenses_delete",
+  "expenses_list",
+  "invitations_create",
+  "invitations_list",
+  "invitations_revoke",
+  "invoices_create",
+  "invoices_export",
+  "invoices_get",
+  "invoices_list",
+  "invoices_update",
+  "members_list",
+  "members_update",
+  "projects_create",
+  "projects_delete",
+  "projects_duplicate",
+  "projects_get",
+  "projects_insights",
+  "projects_list",
+  "projects_update",
+  "reports_export",
+  "reports_summary",
+  "saved_reports_create",
+  "saved_reports_delete",
+  "saved_reports_list",
+  "settings_get",
+  "settings_update",
+  "tags_create",
+  "tags_delete",
+  "tags_list",
+  "tasks_create",
+  "tasks_delete",
+  "tasks_get",
+  "tasks_list",
+  "tasks_update",
+  "time_entries_bulk_update",
+  "time_entries_create",
+  "time_entries_delete",
+  "time_entries_duplicate",
+  "time_entries_get",
+  "time_entries_import",
+  "time_entries_list",
+  "time_entries_resume",
+  "time_entries_update",
+  "time_off_cancel",
+  "time_off_create",
+  "time_off_list",
+  "time_off_review",
+  "timer_discard",
+  "timer_get",
+  "timer_start",
+  "timer_stop",
+  "timesheets_create",
+  "timesheets_get",
+  "timesheets_list",
+  "timesheets_transition",
+  "tokens_create",
+  "tokens_list",
+  "tokens_revoke",
+  "workload_report",
+  "workspace_get",
+].sort();
 test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   if (!process.env.DATABASE_URL)
@@ -339,6 +417,17 @@ test("rates are captured, imports are atomic, approval and invoice locks hold", 
   );
   const audit = await json(await admin.get("/api/v1/audit-log"));
   expect(audit.length).toBeGreaterThan(0);
+  // Every mutation above should be attributable in the audit trail.
+  expect(
+    audit.some((a: { summary: string }) =>
+      a.summary.includes("Updated after reopening"),
+    ),
+  ).toBe(true);
+  expect(
+    audit.some((a: { summary: string }) =>
+      a.summary.includes("Marked invoice void"),
+    ),
+  ).toBe(true);
 });
 test("capacity accounts for approved leave, templates copy tasks, and last admin is protected", async () => {
   const workspace = await json(await admin.get("/api/workspace"));
@@ -501,6 +590,12 @@ test("MCP SDK discovers all actions, executes workflows, exports PDF, rejects re
   expect(tools.tools.map((t) => t.name).sort()).toEqual(
     catalog.map((a: { name: string }) => a.name).sort(),
   );
+  // The catalog and MCP registry are generated from the same source, so also
+  // pin the full expected surface against a literal list.
+  expect(tools.tools.map((t) => t.name).sort()).toEqual(EXPECTED_ACTIONS);
+  expect(catalog.map((a: { name: string }) => a.name).sort()).toEqual(
+    EXPECTED_ACTIONS,
+  );
   const created = await client.callTool({
     name: "tags_create",
     arguments: { name: "MCP-tested" },
@@ -597,7 +692,11 @@ test("PDF pagination preserves detailed notes and member attribution; CSV escape
   }
   expect(text).toContain("END-OF-NOTES-0");
   expect(text).toContain("END-OF-NOTES-17");
-  expect(text).toContain("Member");
+  // The member's entry must render with the member's name. Broken attribution
+  // renders "Unassigned" instead, and "Member research" alone proves nothing
+  // because the fixture task name contains the word "Member".
+  expect(text).toContain("Member research");
+  expect(text).not.toContain("Unassigned");
   expect(text).toContain("SkyTime");
   await loading.destroy();
   // Publish a readable fictional sample separately from the pagination stress fixture.

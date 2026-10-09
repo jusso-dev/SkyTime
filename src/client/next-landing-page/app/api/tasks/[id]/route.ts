@@ -1,4 +1,4 @@
-import { requireProject } from "@/lib/validation";
+import { optNumber, optString, requireProject } from "@/lib/validation";
 import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -57,14 +57,14 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
       id,
       body.projectId ?? existing.project_id,
       typeof body.title === "string" && body.title.trim()
-        ? body.title.trim()
+        ? optString(body.title, "Title", 200)
         : existing.title,
       ["Backlog", "Today", "Doing", "Done"].includes(String(body.status))
         ? body.status
         : existing.status,
       body.estimateHours === undefined
         ? existing.estimate_hours
-        : Number(body.estimateHours) || 1,
+        : optNumber(body.estimateHours, "Estimate", 0, 9999.99),
       tenant.organization.id,
     ],
   );

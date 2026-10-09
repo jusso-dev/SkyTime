@@ -1,4 +1,4 @@
-import { optNumber, requireDateOnly } from "@/lib/validation";
+import { optColor, optNumber, optString, requireDateOnly } from "@/lib/validation";
 import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { NotFoundError, ValidationError } from "@/lib/errors";
@@ -36,7 +36,7 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
   const before = projectFromRow(existing);
 
   let clientName =
-    body.client === undefined ? existing.client : String(body.client).trim();
+    body.client === undefined ? existing.client : optString(body.client, "Client", 200);
   let clientId: string | null = existing.client_id;
   if (body.clientId !== undefined) {
     clientId = optUuid(body.clientId, "Client id");
@@ -59,16 +59,16 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
     [
       id,
       typeof body.name === "string" && body.name.trim()
-        ? body.name.trim()
+        ? optString(body.name, "Project name", 200)
         : existing.name,
       clientName || "No client",
       clientId,
       body.rate === undefined
         ? existing.rate
         : (optNumber(body.rate, "Rate") ?? 0),
-      typeof body.color === "string" && body.color
-        ? body.color
-        : existing.color,
+      body.color === undefined
+        ? existing.color
+        : optColor(body.color, "Color", existing.color),
       body.status === "Paused" || body.status === "Active"
         ? body.status
         : existing.status,
@@ -83,7 +83,7 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
           : null,
       body.notes === undefined
         ? existing.notes
-        : String(body.notes).slice(0, 5000),
+        : optString(body.notes, "Notes", 5000),
     ],
   );
 
@@ -104,9 +104,12 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
 export const DELETE = withTenant<Params>(
   async ({ tenant, request, params }) => {
     const id = requireUuid(params.id, "Project id");
+    // Count every entry that points at this project, including rows with a
+    // missing/foreign organization_id: the delete cascades to them, so the
+    // "no recorded time" invariant must not depend on tenant scoping.
     const usage = await query(
-      "select id from time_entries where project_id=$1 and organization_id=$2 limit 1",
-      [id, tenant.organization.id],
+      "select id from time_entries where project_id=$1 limit 1",
+      [id],
     );
     if (usage.rows[0])
       throw new ValidationError(

@@ -16,17 +16,20 @@ type Row = {
 
 const MAX_LIMIT = 200;
 
-export const GET = withTenant(async ({ request }) => {
+export const GET = withTenant(async ({ tenant, request }) => {
   const url = new URL(request.url);
   const limitParam = Number(url.searchParams.get("limit") ?? "100");
   const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(MAX_LIMIT, Math.round(limitParam))) : 100;
   const level = url.searchParams.get("level");
 
-  const params: unknown[] = [];
-  let whereClause = "";
+  // Errors are also captured for unauthenticated requests, which carry no
+  // tenant. Show this organization's errors plus those unattributed rows —
+  // never other organizations' errors.
+  const params: unknown[] = [tenant.organization.id];
+  const whereParts = ["(organization_id = $1 or organization_id is null)"];
   if (level) {
     params.push(level);
-    whereClause = `where level = $${params.length}`;
+    whereParts.push(`level = $${params.length}`);
   }
   params.push(limit);
 
@@ -35,7 +38,7 @@ export const GET = withTenant(async ({ request }) => {
   const result = await query<Row>(
     `select id, level, message, path, method, status_code, created_at
      from error_log
-     ${whereClause}
+     where ${whereParts.join(" and ")}
      order by created_at desc
      limit $${params.length}`,
     params,

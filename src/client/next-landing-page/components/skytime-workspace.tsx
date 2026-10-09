@@ -167,6 +167,7 @@ type ConfirmState = {
 
 type ProjectTotal = {
   project: Project;
+  currency: string;
   durationMs: number;
   billableMs: number;
   amountExGst: number;
@@ -1742,6 +1743,7 @@ export function SkyTimeWorkspace({
           {activeView === "dashboard" && (
             <DashboardView
               activeProject={activeProject}
+              clients={clients}
               elapsedMs={elapsedMs}
               entries={entries}
               manualEntry={manualEntry}
@@ -2147,7 +2149,9 @@ function ConfirmDialog({
           </Button>
           <Button
             tone="danger"
+            disabled={isPending}
             onClick={() => {
+              if (isPending) return;
               setIsPending(true);
               void Promise.resolve(confirm.onConfirm()).finally(() => {
                 setIsPending(false);
@@ -2468,6 +2472,7 @@ function EmptyState({
 
 function DashboardView({
   activeProject,
+  clients,
   elapsedMs,
   entries,
   manualEntry,
@@ -2482,6 +2487,7 @@ function DashboardView({
   deleteEntry,
 }: {
   activeProject?: Project;
+  clients: Client[];
   elapsedMs: number;
   entries: TimeEntry[];
   manualEntry: ManualEntryForm;
@@ -2635,7 +2641,7 @@ function DashboardView({
             <p className="text-sm text-[var(--muted)]">
               {activeProject.client},{" "}
               {activeProject.rate > 0
-                ? `${formatCurrency(activeProject.rate)}/hr ex GST`
+                ? `${formatCurrency(activeProject.rate, currencyForProject(activeProject, clients))}/hr ex GST`
                 : "Non-billable"}
             </p>
           </div>
@@ -2877,7 +2883,7 @@ function ProjectsView({
                     <dt className="text-[var(--muted)]">Rate</dt>
                     <dd className="mt-1 font-semibold tabular">
                       {project.rate > 0
-                        ? `${formatCurrency(project.rate)}/hr ex GST`
+                        ? `${formatCurrency(project.rate, currencyForProject(project, clients))}/hr ex GST`
                         : "Internal"}
                     </dd>
                   </div>
@@ -3126,15 +3132,22 @@ function TimesheetsView({
   onCsv: () => void;
   onPdf: () => void;
 }) {
-  const subtotalExGst = totals.reduce(
-    (sum, total) => sum + total.amountExGst,
-    0,
+  const currencyTotals = totals.reduce(
+    (map, total) => {
+      const group = map.get(total.currency) ?? {
+        amountExGst: 0,
+        gst: 0,
+        amountIncGst: 0,
+      };
+      group.amountExGst += total.amountExGst;
+      group.gst += total.gst;
+      group.amountIncGst += total.amountIncGst;
+      map.set(total.currency, group);
+      return map;
+    },
+    new Map<string, { amountExGst: number; gst: number; amountIncGst: number }>(),
   );
-  const gstTotal = totals.reduce((sum, total) => sum + total.gst, 0);
-  const totalIncGst = totals.reduce(
-    (sum, total) => sum + total.amountIncGst,
-    0,
-  );
+  const mixedCurrencies = currencyTotals.size > 1;
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -3229,24 +3242,33 @@ function TimesheetsView({
             FY starts in {monthName(fyStartMonth)}
           </p>
           <dl className="mt-4 grid gap-2 rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--raised)_68%,transparent)] p-3 text-sm">
-            <div className="flex justify-between gap-3">
-              <dt className="text-[var(--muted)]">Ex GST</dt>
-              <dd className="font-semibold tabular">
-                {formatCurrency(subtotalExGst)}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-[var(--muted)]">{AU_GST_LABEL}</dt>
-              <dd className="font-semibold tabular">
-                {formatCurrency(gstTotal)}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-3 border-t border-[var(--border)] pt-2">
-              <dt className="font-semibold">Inc GST</dt>
-              <dd className="font-bold tabular">
-                {formatCurrency(totalIncGst)}
-              </dd>
-            </div>
+            {[...currencyTotals.entries()].map(([currency, total]) => (
+              <div key={currency} className="grid gap-2">
+                {mixedCurrencies && (
+                  <p className="text-xs font-semibold text-[var(--muted)]">
+                    {currency}
+                  </p>
+                )}
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--muted)]">Ex GST</dt>
+                  <dd className="font-semibold tabular">
+                    {formatCurrency(total.amountExGst, currency)}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-[var(--muted)]">{AU_GST_LABEL}</dt>
+                  <dd className="font-semibold tabular">
+                    {formatCurrency(total.gst, currency)}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3 border-t border-[var(--border)] pt-2">
+                  <dt className="font-semibold">Inc GST</dt>
+                  <dd className="font-bold tabular">
+                    {formatCurrency(total.amountIncGst, currency)}
+                  </dd>
+                </div>
+              </div>
+            ))}
           </dl>
         </section>
 
@@ -3271,11 +3293,11 @@ function TimesheetsView({
                 </div>
                 <p className="mt-1 text-sm text-[var(--muted)] tabular">
                   Billable {formatDuration(total.billableMs)},{" "}
-                  {formatCurrency(total.amountExGst)} ex GST
+                  {formatCurrency(total.amountExGst, total.currency)} ex GST
                 </p>
                 <p className="mt-1 text-xs text-[var(--muted)] tabular">
-                  GST {formatCurrency(total.gst)}, total{" "}
-                  {formatCurrency(total.amountIncGst)}
+                  GST {formatCurrency(total.gst, total.currency)}, total{" "}
+                  {formatCurrency(total.amountIncGst, total.currency)}
                 </p>
               </div>
             ))}
@@ -4177,11 +4199,19 @@ function formatDecimalHours(ms: number) {
   return (ms / 3600000).toFixed(2);
 }
 
-function formatCurrency(value: number) {
+function formatCurrency(value: number, currency = "AUD") {
+  // Intl throws RangeError for non-ISO codes; legacy rows may carry anything.
+  const code = /^[A-Z]{3}$/.test(currency) ? currency : "AUD";
   return new Intl.NumberFormat("en-AU", {
     style: "currency",
-    currency: "AUD",
+    currency: code,
   }).format(value);
+}
+
+function currencyForProject(project: Project, clients: Client[]) {
+  return (
+    clients.find((client) => client.id === project.clientId)?.currency ?? "AUD"
+  );
 }
 
 function monthName(month: number) {
@@ -4206,6 +4236,11 @@ function getTotals(entries: TimeEntry[], projects: Project[]) {
   return projects.flatMap((project) => {
     const total = totals.get(project.id);
     if (!total) return [];
+    // Entries snapshot their currency when recorded; never sum across
+    // currencies without saying which one the amounts are in.
+    const currency =
+      entries.find((entry) => entry.projectId === project.id && entry.currency)
+        ?.currency ?? "AUD";
     const amountExGst = entries
       .filter((entry) => entry.projectId === project.id && entry.billable)
       .reduce(
@@ -4224,6 +4259,7 @@ function getTotals(entries: TimeEntry[], projects: Project[]) {
     return [
       {
         project,
+        currency,
         durationMs: total.durationMs,
         billableMs: total.billableMs,
         amountExGst,
@@ -4519,7 +4555,7 @@ function ClientsView({
                     <dt className="text-[var(--muted)]">Default rate</dt>
                     <dd className="mt-1 font-semibold tabular">
                       {client.defaultRate > 0
-                        ? `${formatCurrency(client.defaultRate)}/hr ${client.currency}`
+                        ? `${formatCurrency(client.defaultRate, client.currency)}/hr`
                         : "—"}
                     </dd>
                   </div>

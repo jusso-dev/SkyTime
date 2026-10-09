@@ -2,7 +2,7 @@ import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { ConflictError } from "@/lib/errors";
 import { withTenant } from "@/lib/route";
-import { optNumber, optString, readJson, requireString } from "@/lib/validation";
+import { optCurrency, optNumber, optString, readJson, requireString } from "@/lib/validation";
 import { CLIENT_COLUMNS, clientFromRow, listClients, type ClientRow } from "@/lib/workspace-repository";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ export const POST = withTenant(async ({ tenant, request }) => {
   const contactName = optString(body.contactName, "Contact name", 200);
   const contactEmail = optString(body.contactEmail, "Contact email", 200);
   const address = optString(body.address, "Address", 500);
-  const currency = (optString(body.currency, "Currency", 8) || "AUD").toUpperCase();
+  const currency = optCurrency(body.currency, "Currency", "AUD");
   const defaultRate = optNumber(body.defaultRate, "Default rate") ?? 0;
   const notes = optString(body.notes, "Notes", 5000);
 

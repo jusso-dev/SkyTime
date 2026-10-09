@@ -130,7 +130,8 @@ async function seedWorkspace(page: Page, label: string) {
   ];
 
   for (const entry of entries) {
-    await page.request.post("/api/time-entries", { data: entry });
+    const response = await page.request.post("/api/time-entries", { data: entry });
+    expect(response.ok(), await response.text()).toBeTruthy();
   }
 
   const tasks = [
@@ -161,7 +162,8 @@ async function seedWorkspace(page: Page, label: string) {
   ];
 
   for (const task of tasks) {
-    await page.request.post("/api/tasks", { data: task });
+    const response = await page.request.post("/api/tasks", { data: task });
+    expect(response.ok(), await response.text()).toBeTruthy();
   }
 
   await page.reload();
