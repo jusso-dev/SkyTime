@@ -31,7 +31,13 @@ export function authOptions(database: AuthDatabase) {
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,
-      sendResetPassword: async ({ user, url }) => {
+      sendResetPassword: async ({
+        user,
+        url,
+      }: {
+        user: { email: string };
+        url: string;
+      }) => {
         const result = await sendPasswordResetEmail({ email: user.email, url });
         if (!result.sent) throw new Error(result.reason);
       },
