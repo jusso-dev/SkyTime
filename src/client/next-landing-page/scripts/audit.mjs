@@ -25,8 +25,14 @@ try {
   if (!raw) throw error;
 }
 const report = JSON.parse(raw);
+// Fail closed: a registry, network or lockfile error still prints JSON, but
+// with an `error` object and no vulnerability report.
+if (report.error || !report.vulnerabilities || typeof report.vulnerabilities !== "object") {
+  console.error("npm audit did not return a usable report:", JSON.stringify(report.error ?? report));
+  process.exit(1);
+}
 const advisories = new Map();
-for (const [name, vuln] of Object.entries(report.vulnerabilities ?? {})) {
+for (const [name, vuln] of Object.entries(report.vulnerabilities)) {
   for (const via of vuln.via ?? []) {
     if (typeof via === "string") continue;
     const id = String(via.url ?? "").split("/").pop() || String(via.source);
