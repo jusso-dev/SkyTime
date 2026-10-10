@@ -43,8 +43,10 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      # Fails on high/critical advisories; documented exceptions live in
+      # scripts/audit.mjs (currently only the unpatched braces advisory, #2).
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: node scripts/audit.mjs
 
       - name: Check types
         run: npm run type-check
