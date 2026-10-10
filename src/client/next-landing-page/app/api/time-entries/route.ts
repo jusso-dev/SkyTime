@@ -10,6 +10,7 @@ import {
   requirePositiveNumber,
   requireString,
   requireUuid,
+  TIME_ENTRY_TASK_MAX,
 } from "@/lib/validation";
 import {
   currentPeriodWindow,
@@ -32,7 +33,7 @@ export const POST = withTenant(async ({ tenant, request }) => {
   const body = await readJson(request);
   const projectId = requireUuid(body.projectId, "Project");
   await requireProject(tenant.organization.id, projectId);
-  const task = requireString(body.task, "Task", 500);
+  const task = requireString(body.task, "Task", TIME_ENTRY_TASK_MAX);
   const notes = optString(body.notes, "Notes", 5000);
   const startedAtRaw = requireString(body.startedAt, "Start time", 64);
   const startedAt = new Date(startedAtRaw);

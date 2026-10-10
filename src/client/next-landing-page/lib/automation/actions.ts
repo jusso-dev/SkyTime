@@ -416,7 +416,7 @@ export const actions: Action[] = [
     "timer",
     z.object({
       projectId: s.id,
-      task: z.string().trim().min(1).max(500),
+      task: s.entryTask,
       notes: z.string().max(5000).optional(),
       billable: z.boolean().optional(),
       tags: s.tags.optional(),
@@ -432,7 +432,7 @@ export const actions: Action[] = [
     z.object({
       id: s.id,
       stoppedAt: z.string().datetime({ offset: true }).optional(),
-      task: z.string().trim().min(1).max(500).optional(),
+      task: s.entryTask.optional(),
       notes: z.string().max(5000).optional(),
       billable: z.boolean().optional(),
       projectId: s.id.optional(),

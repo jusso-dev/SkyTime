@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TIME_ENTRY_TASK_MAX } from "@/lib/validation";
 export const id = z.string().uuid();
 export const date = z
   .string()
@@ -12,10 +13,11 @@ export const date = z
 export const text = z.string().trim().min(1).max(200);
 export const money = z.number().finite().min(0).max(99999999).multipleOf(0.01);
 export const currency = z.string().regex(/^[A-Z]{3}$/);
+export const entryTask = z.string().trim().min(1).max(TIME_ENTRY_TASK_MAX);
 export const tags = z.array(z.string().trim().min(1).max(60)).max(20);
 export const entry = z.object({
   projectId: id,
-  task: z.string().trim().min(1).max(500),
+  task: entryTask,
   notes: z.string().max(5000).optional(),
   startedAt: z.string().datetime({ offset: true }),
   durationMs: z.number().int().positive().max(2147483647),

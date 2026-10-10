@@ -9,6 +9,7 @@ import {
   readJson,
   requireString,
   requireUuid,
+  TIME_ENTRY_TASK_MAX,
 } from "@/lib/validation";
 import {
   currentPeriodWindow,
@@ -94,7 +95,7 @@ export const PATCH = withTenant<Params>(async ({ tenant, request, params }) => {
       id,
       body.projectId ?? existing.project_id,
       typeof body.task === "string" && body.task.trim()
-        ? requireString(body.task, "Task", 500)
+        ? requireString(body.task, "Task", TIME_ENTRY_TASK_MAX)
         : existing.task,
       typeof body.notes === "string"
         ? optString(body.notes, "Notes", 5000)
