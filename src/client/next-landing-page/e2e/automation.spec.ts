@@ -267,6 +267,69 @@ test("tenant boundaries, credential scopes and schema validation", async () => {
   ).toBe(403);
   await read.dispose();
 });
+test("time entry descriptions are not capped at 500 characters", async () => {
+  // Long descriptions (e.g. migrated from Toggl) must save in full through the
+  // v1/MCP schema, the legacy route, updates, imports and the timer.
+  const longTask = (n: number) =>
+    ("Long description " + "x".repeat(n)).slice(0, n);
+  const day = { startedAt: "2026-08-03T09:00:00+10:00" };
+  const ids: string[] = [];
+  const v1 = await json(
+    await admin.post("/api/v1/time-entries", {
+      data: entry({ ...day, task: longTask(4000) }),
+    }),
+  );
+  ids.push(v1.id);
+  expect(v1.task).toBe(longTask(4000));
+  const legacy = await json(
+    await admin.post("/api/time-entries", {
+      data: entry({ ...day, task: longTask(3000) }),
+    }),
+  );
+  ids.push(legacy.id);
+  expect(legacy.task).toBe(longTask(3000));
+  const updated = await json(
+    await admin.patch("/api/v1/time-entries/" + v1.id, {
+      data: { task: longTask(10000) },
+    }),
+  );
+  expect(updated.task).toBe(longTask(10000));
+  const before = (await json(await admin.get("/api/v1/time-entries"))).length;
+  await json(
+    await admin.post("/api/v1/time-entries/import", {
+      data: { entries: [entry({ ...day, task: longTask(2500) })] },
+    }),
+  );
+  const all = await json(await admin.get("/api/v1/time-entries"));
+  expect(all.length).toBe(before + 1);
+  const imported = all.find(
+    (e: { task: string }) => e.task === longTask(2500),
+  );
+  expect(imported).toBeTruthy();
+  ids.push(imported.id);
+  for (const path of ["/api/v1/time-entries", "/api/time-entries"]) {
+    expect(
+      (
+        await admin.post(path, {
+          data: entry({ ...day, task: longTask(10001) }),
+        })
+      ).status(),
+    ).toBe(400);
+    expect(
+      (await admin.post(path, { data: entry({ ...day, task: "   " }) })).status(),
+    ).toBe(400);
+  }
+  const timer = await json(
+    await admin.post("/api/v1/timer", {
+      data: { projectId, task: longTask(1200) },
+    }),
+  );
+  expect(timer.task).toBe(longTask(1200));
+  await json(await admin.delete(`/api/v1/timer/${timer.id}`));
+  for (const id of ids) {
+    await json(await admin.delete("/api/v1/time-entries/" + id));
+  }
+});
 test("concurrent timer start and stop records exactly one entry", async () => {
   const responses = await Promise.all([
     admin.post("/api/v1/timer", {
@@ -602,6 +665,15 @@ test("MCP SDK discovers all actions, executes workflows, exports PDF, rejects re
   expect(catalog.map((a: { name: string }) => a.name).sort()).toEqual(
     EXPECTED_ACTIONS,
   );
+  for (const name of [
+    "time_entries_create",
+    "time_entries_update",
+    "timer_start",
+  ]) {
+    const tool = tools.tools.find((t) => t.name === name)!;
+    const task = (tool.inputSchema.properties as Record<string, { maxLength?: number }>).task;
+    expect(task.maxLength).toBe(10000);
+  }
   const created = await client.callTool({
     name: "tags_create",
     arguments: { name: "MCP-tested" },

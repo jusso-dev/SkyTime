@@ -1,6 +1,13 @@
 import { query } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 
+/**
+ * Upper bound for a time entry's task (description). Generous on purpose so
+ * long descriptions (e.g. imported from Toggl) save in full; it only guards
+ * against pathological payloads.
+ */
+export const TIME_ENTRY_TASK_MAX = 10000;
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
