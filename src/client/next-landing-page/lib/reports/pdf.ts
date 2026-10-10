@@ -1,8 +1,7 @@
-import PDFDocument from "pdfkit";
+import PDFDocument from "./pdf-document";
 import SVGtoPDF from "svg-to-pdfkit";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import type { Report, Branding } from "./data";
+import { skytimeLogoSvg } from "./logo-svg";
 const hours = (ms: number) => (ms / 3600000).toFixed(2) + " h";
 const money = (n: number, c: string) =>
   `${c} ${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -45,10 +44,7 @@ export async function reportPdf(report: Report): Promise<Buffer> {
   const b = report.branding;
   const width = 511;
   let y = 0;
-  const logo = await readFile(
-    path.join(process.cwd(), "public/skytime-logo.svg"),
-    "utf8",
-  );
+  const logo = await skytimeLogoSvg();
   const header = (section: string) => {
     doc.rect(0, 0, 595, 7).fill(b.accentColor);
     if (b.logoDataUrl) {
@@ -328,10 +324,8 @@ export async function invoicePdf(
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
   });
-  const logo = await readFile(
-    path.join(process.cwd(), "public/skytime-logo.svg"),
-    "utf8",
-  );
+  const logo = await skytimeLogoSvg();
+  doc.rect(0, 0, 595, 7).fill(branding.accentColor);
   if (branding.logoDataUrl)
     doc.image(
       Buffer.from(branding.logoDataUrl.split(",")[1], "base64"),

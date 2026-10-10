@@ -2,7 +2,7 @@ import { requestContext } from "@/lib/request-context";
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { ensureReady, query } from "@/lib/db";
 
 export type Tenant = {
   tokenScope?: "read" | "write";
@@ -41,6 +41,7 @@ export async function withResolvedTenant<T>(
 }
 
 export async function getSessionUser(request: Request) {
+  await ensureReady();
   const session = await auth.api.getSession({
     headers: request.headers,
   });
@@ -94,15 +95,21 @@ export async function requireTenant(request: Request) {
           organization_name: string;
           role: "admin" | "member";
           scope: "read" | "write";
+          token_id: string;
         }>(
-          `update api_tokens t set last_used_at = now() from organization_memberships m, organizations o, "user" u
-       where t.token_hash=$1 and t.revoked_at is null and t.expires_at > now()
-       and m.organization_id=t.organization_id and m.user_id=t.user_id and o.id=m.organization_id and u.id=t.user_id
-       returning u.id,u.email,u.name,o.id as organization_id,o.name as organization_name,m.role,t.scope`,
+          `select u.id,u.email,u.name,o.id as organization_id,o.name as organization_name,m.role,t.scope,t.id as token_id
+       from api_tokens t
+       join organization_memberships m on m.organization_id=t.organization_id and m.user_id=t.user_id
+       join organizations o on o.id=m.organization_id
+       join "user" u on u.id=t.user_id
+       where t.token_hash=$1 and t.revoked_at is null and t.expires_at > now()`,
           [createHash("sha256").update(token).digest("hex")],
         )
       : null;
     const row = result?.rows[0];
+    if (row) {
+      await query("update api_tokens set last_used_at=now() where id=$1", [row.token_id]);
+    }
     if (!row)
       return {
         tenant: null,

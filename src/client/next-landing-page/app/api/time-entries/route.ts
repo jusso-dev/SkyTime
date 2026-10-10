@@ -16,6 +16,7 @@ import {
   entryFromRow,
   isEntryLocked,
   listEntries,
+  readTimeEntry,
   refreshPeriodTotals,
   TIME_ENTRY_COLUMNS,
   type TimeEntryRow,
@@ -66,7 +67,7 @@ export const POST = withTenant(async ({ tenant, request }) => {
     ],
   );
 
-  const entry = entryFromRow(result.rows[0]);
+  const entry = entryFromRow((await readTimeEntry(result.rows[0].id)) ?? result.rows[0]);
   const window = currentPeriodWindow(startedAt);
   await refreshPeriodTotals(
     tenant.organization.id,

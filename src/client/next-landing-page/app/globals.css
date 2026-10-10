@@ -1,4 +1,7 @@
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4 */
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · tone: utilitarian · anchor hue: cool · nav: N3 · footer: none · enrichment: none */
 @import "tailwindcss";
+@import "../tokens.css";
 
 :root {
   color-scheme: light;
@@ -81,10 +84,11 @@ html {
   min-height: 100%;
   background: var(--background);
   -webkit-text-size-adjust: 100%;
+  overflow-x: clip;
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   background: var(--page-gradient);
   color: var(--text);
@@ -98,7 +102,7 @@ body {
     sans-serif;
   font-size: 14px;
   line-height: 1.55;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 button,
@@ -636,5 +640,85 @@ progress::-moz-progress-bar {
 @media (prefers-reduced-motion: reduce) {
   .feature-button {
     transition: none;
+  }
+}
+
+/* Mobile shell. Append-only. Existing palette stays. */
+h1,
+h2,
+.feature-heading h2 {
+  overflow-wrap: anywhere;
+  min-width: 0;
+  font-style: normal;
+}
+
+.auth-frame {
+  display: grid;
+  min-height: 100dvh;
+  place-items: safe center;
+  padding: max(4.5rem, calc(env(safe-area-inset-top) + 3.5rem))
+    max(1rem, env(safe-area-inset-right))
+    max(1.5rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
+}
+
+.feature-button,
+.feature-tab {
+  white-space: nowrap;
+}
+
+.feature-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.feature-columns,
+.feature-filters {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 40rem) {
+  .feature-filters {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  }
+}
+
+@media (min-width: 60rem) {
+  .feature-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .feature-columns {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 40rem) {
+  .feature-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .feature-toolbar > .feature-control {
+    max-width: none;
+    width: 100%;
+  }
+
+  .feature-token {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (pointer: coarse) {
+  .feature-button,
+  .feature-tab {
+    min-height: 2.75rem;
+  }
+}
+
+@media (max-width: 60rem) {
+  .feature-stats > div {
+    border: 0;
+    padding: 0;
   }
 }

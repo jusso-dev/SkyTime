@@ -34,7 +34,9 @@ import {
   Copy,
   Code2,
   Edit3,
+  Ellipsis,
   FileText,
+  Fingerprint,
   FolderPlus,
   History,
   KeyRound,
@@ -53,6 +55,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { authClient } from "@/lib/auth-client";
 import {
   ReportsView,
   AutomationView,
@@ -126,11 +129,8 @@ type AuthState =
   | { kind: "workspace"; data: WorkspacePayload };
 
 type AuthForm = {
-  mode: "signin" | "signup";
-  name: string;
   email: string;
   password: string;
-  confirmPassword: string;
   organizationName: string;
 };
 
@@ -312,11 +312,8 @@ export function SkyTimeWorkspace({
     estimateHours: "1",
   });
   const [authForm, setAuthForm] = useState<AuthForm>({
-    mode: "signin",
-    name: "",
     email: "",
     password: "",
-    confirmPassword: "",
     organizationName: "",
   });
   const [mfa, setMfa] = useState<MfaState>({
@@ -450,31 +447,18 @@ export function SkyTimeWorkspace({
   }
 
   async function submitAuth() {
-    if (
-      authForm.mode === "signup" &&
-      authForm.password !== authForm.confirmPassword
-    ) {
-      setLoadError("Passwords do not match");
-      return;
-    }
-
     startAuthTransition(() => {
       void (async () => {
         try {
           setLoadError("");
-          const endpoint =
-            authForm.mode === "signin"
-              ? "/api/auth/sign-in/email"
-              : "/api/auth/sign-up/email";
           const result = await api<{
             twoFactorRedirect?: boolean;
             twoFactorMethods?: string[];
-          }>(endpoint, {
+          }>("/api/auth/sign-in/email", {
             method: "POST",
             body: JSON.stringify({
               email: authForm.email,
               password: authForm.password,
-              name: authForm.name || authForm.email,
             }),
           });
           if (result.twoFactorRedirect) {
@@ -491,6 +475,27 @@ export function SkyTimeWorkspace({
         } catch (error) {
           setLoadError(
             error instanceof Error ? error.message : "Authentication failed",
+          );
+        }
+      })();
+    });
+  }
+
+  async function signInWithPasskey() {
+    startAuthTransition(() => {
+      void (async () => {
+        try {
+          setLoadError("");
+          const result = await authClient.signIn.passkey();
+          if (result.error) {
+            setLoadError(result.error.message || "Passkey sign-in failed");
+            return;
+          }
+          if (await acceptPendingInvite()) return;
+          await loadWorkspace();
+        } catch (error) {
+          setLoadError(
+            error instanceof Error ? error.message : "Passkey sign-in failed",
           );
         }
       })();
@@ -745,7 +750,7 @@ export function SkyTimeWorkspace({
       showToast(
         invite.emailSent
           ? "Invite sent"
-          : "Invite created. Configure Resend to send email.",
+          : "Invite created. Email did not send.",
         invite.emailSent ? "success" : "info",
       );
     } catch (error) {
@@ -1543,11 +1548,6 @@ export function SkyTimeWorkspace({
       : []),
     { id: "settings", label: "Settings", icon: Settings2 },
   ];
-  const mobileNavItems = navItems.filter((item) =>
-    ["dashboard", "projects", "timesheets", "approvals", "settings"].includes(
-      item.id,
-    ),
-  );
 
   if (authState.kind === "signed-out") {
     return (
@@ -1559,6 +1559,7 @@ export function SkyTimeWorkspace({
         setMfa={setMfa}
         setAuthForm={setAuthForm}
         submitAuth={submitAuth}
+        signInWithPasskey={signInWithPasskey}
         theme={theme}
         toggleTheme={() => setTheme(theme === "light" ? "dark" : "light")}
         verifyMfaSignIn={verifyMfaSignIn}
@@ -1583,12 +1584,10 @@ export function SkyTimeWorkspace({
 
   if (loading) {
     return (
-      <div className="grid min-h-screen place-items-center px-4 text-[var(--text)]">
+      <div className="auth-frame text-[var(--text)]">
         <div className="sky-panel w-full max-w-sm p-6">
           <Brand />
-          <p className="mt-5 text-sm text-[var(--muted)]">
-            Loading workspace from Postgres...
-          </p>
+          <p className="mt-5 text-sm text-[var(--muted)]">Loading workspace…</p>
         </div>
       </div>
     );
@@ -1596,7 +1595,7 @@ export function SkyTimeWorkspace({
 
   if (loadError) {
     return (
-      <div className="grid min-h-screen place-items-center px-4 text-[var(--text)]">
+      <div className="auth-frame text-[var(--text)]">
         <div className="sky-panel w-full max-w-md p-6">
           <Brand />
           <h1 className="mt-5 text-lg font-semibold">Database is not ready</h1>
@@ -1616,7 +1615,7 @@ export function SkyTimeWorkspace({
   }
 
   return (
-    <div className="min-h-screen text-[var(--text)]">
+    <div className="min-h-dvh text-[var(--text)]">
       <aside className="sky-glass fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-[var(--border)] px-4 py-5 lg:flex lg:flex-col">
         <Brand />
         <nav
@@ -1649,15 +1648,15 @@ export function SkyTimeWorkspace({
         </div>
       </aside>
 
-      <header className="sky-glass sticky top-0 z-10 border-b border-[var(--border)] px-3 py-3 sm:px-4 lg:hidden">
-        <div className="flex items-center justify-between gap-3">
+      <header className="sky-glass sticky top-0 z-10 border-b border-[var(--border)] px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4 lg:hidden">
+        <div className="flex items-center gap-2">
           <Brand compact />
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <select
               aria-label="Workspace section"
               value={activeView}
               onChange={(event) => setActiveView(event.target.value)}
-              className="min-w-0 max-w-36 rounded-xl border border-[var(--border)] bg-[var(--raised)] px-2 py-2 text-sm font-semibold"
+              className="h-11 min-w-0 flex-1 truncate rounded-xl border border-[var(--border)] bg-[var(--raised)] px-3 text-sm font-semibold"
             >
               {navItems.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -1673,14 +1672,14 @@ export function SkyTimeWorkspace({
         </div>
       </header>
 
-      <main className="lg:pl-64">
-        <div className="mx-auto max-w-7xl px-3 pb-28 pt-4 sm:px-6 sm:pb-8 lg:px-8 lg:py-7">
-          <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--raised)_72%,transparent)] p-4 shadow-[var(--soft-shadow)] backdrop-blur sm:p-5 md:flex-row md:items-end md:justify-between">
-            <div>
+      <main className="min-w-0 lg:pl-64">
+        <div className="mx-auto min-w-0 max-w-7xl px-3 pb-[calc(env(safe-area-inset-bottom)+6.25rem)] pt-4 sm:px-6 lg:px-8 lg:py-7">
+          <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-[var(--border)] bg-[color-mix(in_oklch,var(--raised)_72%,transparent)] p-3 shadow-[var(--soft-shadow)] backdrop-blur sm:p-5 md:flex-row md:items-end md:justify-between">
+            <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--accent-strong)]">
                 Workspace
               </p>
-              <h1 className="mt-1 text-2xl font-bold leading-tight sm:text-[30px]">
+              <h1 className="mt-1 min-w-0 text-xl font-bold leading-tight sm:text-[30px]">
                 {activeView === "dashboard"
                   ? "Track time without losing the workday."
                   : navItems.find((item) => item.id === activeView)?.label}
@@ -1896,7 +1895,7 @@ export function SkyTimeWorkspace({
 
       <MobileBottomNav
         activeView={activeView}
-        items={mobileNavItems}
+        items={navItems}
         onChange={setActiveView}
       />
       <ToastStack
@@ -1919,7 +1918,10 @@ function Brand({ compact = false }: { compact?: boolean }) {
       <img
         src="/skytime-mark.svg"
         alt=""
-        className="size-11 rounded-2xl shadow-[0_10px_24px_color-mix(in_oklch,var(--accent)_20%,transparent)]"
+        className={cn(
+          "rounded-2xl shadow-[0_10px_24px_color-mix(in_oklch,var(--accent)_20%,transparent)]",
+          compact ? "size-9" : "size-11",
+        )}
       />
       {!compact && (
         <div>
@@ -1965,6 +1967,13 @@ function NavButton({
   );
 }
 
+const mobilePrimary = [
+  { id: "dashboard", short: "Home" },
+  { id: "timesheets", short: "Time" },
+  { id: "projects", short: "Work" },
+  { id: "approvals", short: "Review" },
+] as const;
+
 function MobileBottomNav({
   activeView,
   items,
@@ -1974,35 +1983,104 @@ function MobileBottomNav({
   items: { id: string; label: string; icon: typeof LayoutDashboard }[];
   onChange: (view: string) => void;
 }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const primary = mobilePrimary.flatMap((slot) => {
+    const item = items.find((entry) => entry.id === slot.id);
+    return item ? [{ ...item, short: slot.short }] : [];
+  });
+  const moreItems = items.filter(
+    (item) => !mobilePrimary.some((slot) => slot.id === item.id),
+  );
+  const moreActive =
+    moreOpen || moreItems.some((item) => item.id === activeView);
+
+  function pick(id: string) {
+    setMoreOpen(false);
+    onChange(id);
+  }
+
   return (
-    <nav
-      className="sky-glass fixed inset-x-0 bottom-0 z-30 border-t border-[var(--border)] px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 lg:hidden"
-      aria-label="Primary"
-      data-testid="mobile-nav"
-    >
-      <div className="grid grid-cols-5 gap-1">
-        {items.map((item) => {
-          const Icon = item.icon;
-          const active = activeView === item.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onChange(item.id)}
-              className={cn(
-                "grid min-h-14 place-items-center gap-1 rounded-2xl px-1 py-2 text-[11px] font-semibold transition-colors focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]",
-                active
-                  ? "bg-[var(--accent-subtle)] text-[var(--accent-strong)]"
-                  : "text-[var(--muted)] active:bg-[var(--surface)]",
-              )}
-            >
-              <Icon className="size-4" aria-hidden />
-              <span className="max-w-full truncate">{item.label}</span>
-            </button>
-          );
-        })}
-      </div>
-    </nav>
+    <>
+      {moreOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-[color-mix(in_oklch,var(--background)_72%,transparent)]"
+            aria-label="Close menu"
+            onClick={() => setMoreOpen(false)}
+          />
+          <nav
+            aria-label="More sections"
+            className="absolute inset-x-2 bottom-[calc(env(safe-area-inset-bottom)+5.25rem)] max-h-[min(70dvh,28rem)] overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--raised)] p-2 shadow-[var(--shadow)]"
+          >
+            {moreItems.map((item) => {
+              const Icon = item.icon;
+              const active = activeView === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => pick(item.id)}
+                  className={cn(
+                    "flex min-h-12 w-full items-center gap-3 whitespace-nowrap rounded-xl px-3 text-sm font-semibold focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]",
+                    active
+                      ? "bg-[var(--accent-subtle)] text-[var(--accent-strong)]"
+                      : "text-[var(--text)]",
+                  )}
+                >
+                  <Icon className="size-4 shrink-0" aria-hidden />
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      )}
+      <nav
+        className="sky-glass fixed inset-x-0 bottom-0 z-50 border-t border-[var(--border)] px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 lg:hidden"
+        aria-label="Primary"
+        data-testid="mobile-nav"
+      >
+        <div className="grid grid-cols-5 gap-1">
+          {primary.map((item) => {
+            const Icon = item.icon;
+            const active = activeView === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={item.label}
+                onClick={() => pick(item.id)}
+                className={cn(
+                  "flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-2xl px-1 py-1.5 text-[11px] font-semibold focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]",
+                  active
+                    ? "bg-[var(--accent-subtle)] text-[var(--accent-strong)]"
+                    : "text-[var(--muted)] active:bg-[var(--surface)]",
+                )}
+              >
+                <Icon className="size-5 shrink-0" aria-hidden />
+                {item.short}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            aria-expanded={moreOpen}
+            aria-label="More sections"
+            onClick={() => setMoreOpen((open) => !open)}
+            className={cn(
+              "flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 whitespace-nowrap rounded-2xl px-1 py-1.5 text-[11px] font-semibold focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]",
+              moreActive
+                ? "bg-[var(--accent-subtle)] text-[var(--accent-strong)]"
+                : "text-[var(--muted)] active:bg-[var(--surface)]",
+            )}
+          >
+            <Ellipsis className="size-5 shrink-0" aria-hidden />
+            More
+          </button>
+        </div>
+      </nav>
+    </>
   );
 }
 
@@ -2040,7 +2118,7 @@ function ToastStack({
 }) {
   return (
     <div
-      className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] z-40 grid gap-2 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:w-[min(360px,calc(100vw-2rem))]"
+      className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+6.5rem)] z-40 grid gap-2 lg:inset-x-auto lg:bottom-5 lg:right-5 lg:w-[min(360px,calc(100%-2rem))]"
       role="status"
       aria-live="polite"
     >
@@ -2109,7 +2187,7 @@ function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid items-end bg-[color-mix(in_oklch,var(--background)_72%,transparent)] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-4 backdrop-blur-sm sm:place-items-center sm:p-4"
+      className="fixed inset-0 z-[60] grid items-end bg-[color-mix(in_oklch,var(--background)_72%,transparent)] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-4 backdrop-blur-sm sm:place-items-center sm:p-4"
       role="presentation"
     >
       <section
@@ -2168,6 +2246,68 @@ function ConfirmDialog({
   );
 }
 
+function ForgotPassword({ email }: { email: string }) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function sendReset() {
+    setPending(true);
+    setMessage("");
+    setError("");
+    try {
+      const response = await fetch("/api/auth/request-password-reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email,
+          redirectTo: `${window.location.origin}/reset-password`,
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        message?: string;
+      };
+      if (!response.ok) {
+        setError(data.message || "Could not send the reset email");
+        return;
+      }
+      setMessage("If that email has an account, a reset link is on the way.");
+    } catch {
+      setError("Could not send the reset email");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="justify-self-start text-sm font-semibold text-[var(--accent-strong)]"
+        onClick={() => setOpen(true)}
+      >
+        Forgot password
+      </button>
+    );
+  }
+
+  return (
+    <div className="grid gap-2">
+      <button
+        type="button"
+        className="justify-self-start text-sm font-semibold text-[var(--accent-strong)] disabled:opacity-60"
+        disabled={pending || !email}
+        onClick={() => void sendReset()}
+      >
+        {pending ? "Sending..." : "Email me a reset link"}
+      </button>
+      {message && <p className="text-sm text-[var(--muted)]">{message}</p>}
+      {error && <p className="text-sm text-[var(--error)]">{error}</p>}
+    </div>
+  );
+}
+
 function AuthScreen({
   authForm,
   isPending,
@@ -2176,6 +2316,7 @@ function AuthScreen({
   setMfa,
   setAuthForm,
   submitAuth,
+  signInWithPasskey,
   theme,
   toggleTheme,
   verifyMfaSignIn,
@@ -2187,54 +2328,34 @@ function AuthScreen({
   setMfa: Dispatch<SetStateAction<MfaState>>;
   setAuthForm: Dispatch<SetStateAction<AuthForm>>;
   submitAuth: () => void;
+  signInWithPasskey: () => void;
   theme: ThemeMode;
   toggleTheme: () => void;
   verifyMfaSignIn: () => void;
 }) {
+  const [passkeyReady, setPasskeyReady] = useState(false);
+  useEffect(() => {
+    setPasskeyReady(
+      typeof PublicKeyCredential !== "undefined" &&
+        typeof PublicKeyCredential === "function",
+    );
+  }, []);
+
   return (
-    <div className="grid min-h-screen place-items-center px-4 text-[var(--text)]">
-      <div className="fixed right-4 top-4">
+    <div className="auth-frame text-[var(--text)]">
+      <div className="fixed right-4 top-[max(1rem,env(safe-area-inset-top))] z-10">
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
       </div>
-      <section className="sky-panel w-full max-w-md p-6">
+      <section className="sky-panel w-full max-w-md p-5 sm:p-6">
         <Brand />
         <p className="mt-6 text-sm text-[var(--muted)]">
-          Sign in to your organization or create a new SkyTime workspace.
+          Sign in to your organization.
         </p>
-        <div className="mt-6 flex rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-1">
-          {(["signin", "signup"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setAuthForm((current) => ({ ...current, mode }))}
-              className={cn(
-                "h-10 flex-1 rounded-xl px-3 text-sm font-semibold transition-colors focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]",
-                authForm.mode === mode
-                  ? "bg-[var(--raised)] text-[var(--text)] shadow-sm"
-                  : "text-[var(--muted)]",
-              )}
-            >
-              {mode === "signin" ? "Sign in" : "Create account"}
-            </button>
-          ))}
-        </div>
         <div className="mt-5 grid gap-3">
-          {authForm.mode === "signup" && (
-            <Field label="Name">
-              <Input
-                value={authForm.name}
-                onChange={(event) =>
-                  setAuthForm((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-          )}
           <Field label="Email">
             <Input
               type="email"
+              autoComplete="username webauthn"
               value={authForm.email}
               onChange={(event) =>
                 setAuthForm((current) => ({
@@ -2247,6 +2368,7 @@ function AuthScreen({
           <Field label="Password">
             <Input
               type="password"
+              autoComplete="current-password webauthn"
               value={authForm.password}
               onChange={(event) =>
                 setAuthForm((current) => ({
@@ -2256,20 +2378,7 @@ function AuthScreen({
               }
             />
           </Field>
-          {authForm.mode === "signup" && (
-            <Field label="Confirm password">
-              <Input
-                type="password"
-                value={authForm.confirmPassword}
-                onChange={(event) =>
-                  setAuthForm((current) => ({
-                    ...current,
-                    confirmPassword: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-          )}
+          <ForgotPassword email={authForm.email} />
           {mfa.signInRequired && (
             <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <div className="flex items-center gap-2">
@@ -2346,11 +2455,13 @@ function AuthScreen({
           {!mfa.signInRequired && (
             <Button onClick={submitAuth}>
               <Clock3 className="size-4" />
-              {isPending
-                ? "Working..."
-                : authForm.mode === "signin"
-                  ? "Sign in"
-                  : "Create account"}
+              {isPending ? "Working..." : "Sign in"}
+            </Button>
+          )}
+          {passkeyReady && !mfa.signInRequired && (
+            <Button tone="neutral" onClick={signInWithPasskey} disabled={isPending}>
+              <Fingerprint className="size-4" />
+              Use a passkey
             </Button>
           )}
         </div>
@@ -2379,11 +2490,11 @@ function OrganizationOnboarding({
   userEmail: string;
 }) {
   return (
-    <div className="grid min-h-screen place-items-center px-4 text-[var(--text)]">
-      <div className="fixed right-4 top-4">
+    <div className="auth-frame text-[var(--text)]">
+      <div className="fixed right-4 top-[max(1rem,env(safe-area-inset-top))] z-10">
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
       </div>
-      <section className="sky-panel w-full max-w-md p-6">
+      <section className="sky-panel w-full max-w-md p-5 sm:p-6">
         <Brand />
         <h1 className="mt-6 text-lg font-semibold">Create your organization</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
@@ -2431,7 +2542,7 @@ function StatCard({
   return (
     <article className="sky-panel p-4">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
             {label}
           </p>
@@ -2986,7 +3097,7 @@ function BoardView({
         </div>
       </div>
       <DndContext onDragEnd={onDragEnd}>
-        <div className="kanban-scroll grid auto-cols-[minmax(17rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-3 lg:grid-flow-row lg:grid-cols-4 lg:overflow-visible lg:pb-0">
+        <div className="kanban-scroll grid min-w-0 auto-cols-[minmax(min(17rem,100%),1fr)] grid-flow-col gap-3 overflow-x-auto pb-3 lg:grid-flow-row lg:grid-cols-4 lg:overflow-visible lg:pb-0">
           {columns.map((column) => (
             <BoardColumn
               key={column}
@@ -3188,7 +3299,7 @@ function TimesheetsView({
                 type="button"
                 onClick={() => setPeriod(value)}
                 className={cn(
-                  "rounded-xl border px-3 py-2 text-sm font-semibold transition-colors focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]",
+                  "min-h-11 whitespace-nowrap rounded-xl border px-3 py-2 text-sm font-semibold transition-colors focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]",
                   period === value
                     ? "border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--accent-strong)]"
                     : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--text)]",
@@ -3305,6 +3416,310 @@ function TimesheetsView({
         </section>
       </aside>
     </div>
+  );
+}
+
+type ReportBranding = {
+  companyName: string;
+  logoDataUrl: string | null;
+  accentColor: string;
+};
+
+function ReportBrandingSettings() {
+  const [accentColor, setAccentColor] = useState("#2563eb");
+  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
+  const [logoChanged, setLogoChanged] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<ReportBranding>("/api/v1/branding")
+      .then((branding) => {
+        if (cancelled) return;
+        setAccentColor(branding.accentColor || "#2563eb");
+        setLogoDataUrl(branding.logoDataUrl);
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : "Could not load branding");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function save() {
+    if (!/^#[0-9a-fA-F]{6}$/.test(accentColor)) {
+      setError("Use a hex color like #2563eb");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const body: { accentColor: string; logoDataUrl?: string | null } = {
+        accentColor,
+      };
+      if (logoChanged) body.logoDataUrl = logoDataUrl;
+      const saved = await api<ReportBranding>("/api/v1/branding", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      setAccentColor(saved.accentColor);
+      setLogoDataUrl(saved.logoDataUrl);
+      setLogoChanged(false);
+      setMessage("PDF branding saved");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save branding");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="sky-panel p-4 sm:p-5 xl:col-span-2">
+      <div className="flex items-center gap-2">
+        <FileText className="size-5 text-[var(--accent-strong)]" aria-hidden />
+        <h2 className="text-lg font-semibold">PDF reports</h2>
+      </div>
+      <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">
+        Time reports and invoices use this logo and color.
+      </p>
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+        <div className="grid content-start gap-3">
+          <Field label="Accent color">
+            <div className="flex min-w-0 items-center gap-2">
+              <input
+                aria-label="Accent color picker"
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(accentColor) ? accentColor : "#2563eb"}
+                onChange={(event) => setAccentColor(event.target.value)}
+                className="h-11 w-14 shrink-0 cursor-pointer rounded-xl border border-[var(--border)] bg-[var(--raised)] p-1"
+              />
+              <div className="min-w-0 flex-1">
+                <Input
+                  aria-label="Accent color hex"
+                  value={accentColor}
+                  spellCheck={false}
+                  onChange={(event) => setAccentColor(event.target.value)}
+                />
+              </div>
+            </div>
+          </Field>
+          <Field label="Company logo">
+            <input
+              aria-label="Company logo"
+              type="file"
+              accept="image/png,image/jpeg"
+              className="block w-full max-w-full overflow-hidden text-sm text-[var(--muted)] file:mr-3 file:whitespace-nowrap file:rounded-lg file:border-0 file:bg-[var(--accent-subtle)] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[var(--accent-strong)]"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                if (file.size > 1_000_000) {
+                  setError("Choose a logo smaller than 1 MB");
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => {
+                  setLogoDataUrl(String(reader.result));
+                  setLogoChanged(true);
+                  setError("");
+                  setMessage("Logo ready. Save to use it on PDFs.");
+                };
+                reader.onerror = () => setError("Could not read that logo");
+                reader.readAsDataURL(file);
+              }}
+            />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => void save()} disabled={busy}>
+              <Check className="size-4" />
+              {busy ? "Saving..." : "Save PDF branding"}
+            </Button>
+            <Button
+              tone="neutral"
+              disabled={busy}
+              onClick={() => {
+                setLogoDataUrl(null);
+                setLogoChanged(true);
+                setMessage("SkyTime logo will return after you save.");
+              }}
+            >
+              Use SkyTime logo
+            </Button>
+          </div>
+          {message && <p className="text-sm text-[var(--muted)]">{message}</p>}
+          {error && <p className="text-sm text-[var(--error)]">{error}</p>}
+        </div>
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+            Preview
+          </p>
+          <div className="mt-3 overflow-hidden rounded-xl border border-[var(--border)] bg-white">
+            <div className="h-2" style={{ background: accentColor }} />
+            <div className="flex min-h-24 items-center px-4 py-3">
+              {logoDataUrl ? (
+                <img
+                  src={logoDataUrl}
+                  alt="Company logo preview"
+                  className="max-h-12 max-w-[180px] object-contain"
+                />
+              ) : (
+                <p className="text-sm font-semibold text-slate-900">SkyTime</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type StoredPasskey = {
+  id: string;
+  name?: string | null;
+};
+
+function passkeyLabel(name?: string | null) {
+  const trimmed = name?.trim();
+  return trimmed || "Passkey";
+}
+
+function PasskeySettings({ email }: { email: string }) {
+  const [rows, setRows] = useState<StoredPasskey[]>([]);
+  const [supported, setSupported] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [pendingRemove, setPendingRemove] = useState("");
+
+  async function refresh() {
+    const result = await authClient.passkey.listUserPasskeys();
+    if (result.error) {
+      setError(result.error.message || "Could not load passkeys");
+      return;
+    }
+    setRows(result.data ?? []);
+  }
+
+  useEffect(() => {
+    setSupported(typeof PublicKeyCredential !== "undefined");
+    void refresh();
+  }, []);
+
+  async function addPasskey() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await authClient.passkey.addPasskey({
+        name: "This device",
+      });
+      if (result.error) {
+        setError(result.error.message || "Could not add that passkey");
+        return;
+      }
+      setMessage("Passkey added");
+      await refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not add that passkey",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removePasskey(id: string) {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await authClient.passkey.deletePasskey({ id });
+      if (result.error) {
+        setError(result.error.message || "Could not remove that passkey");
+        return;
+      }
+      setPendingRemove("");
+      setMessage("Passkey removed");
+      await refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not remove that passkey",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="sky-panel p-4 sm:p-5 xl:col-span-2">
+      <div className="flex items-center gap-2">
+        <Fingerprint
+          className="size-5 text-[var(--accent-strong)]"
+          aria-hidden
+        />
+        <h2 className="text-lg font-semibold">Passkeys</h2>
+      </div>
+      <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">
+        Add a passkey for {email}. It signs this account in without the
+        password. Password sign-in still asks for the authenticator code when
+        that is turned on.
+      </p>
+      <div className="mt-5 grid gap-3">
+        {supported ? (
+          <Button onClick={() => void addPasskey()} disabled={busy}>
+            <Fingerprint className="size-4" />
+            {busy ? "Working..." : "Add passkey"}
+          </Button>
+        ) : (
+          <p className="text-sm text-[var(--muted)]">
+            This browser cannot store a passkey.
+          </p>
+        )}
+        {rows.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">
+            No passkey on this account yet.
+          </p>
+        ) : (
+          rows.map((row) => {
+            const label = passkeyLabel(row.name);
+            return (
+              <div
+                key={row.id}
+                className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <p className="min-w-0 font-semibold">{label}</p>
+                {pendingRemove === row.id ? (
+                  <Button
+                    tone="neutral"
+                    disabled={busy}
+                    onClick={() => void removePasskey(row.id)}
+                  >
+                    Remove passkey
+                  </Button>
+                ) : (
+                  <Button
+                    tone="neutral"
+                    disabled={busy}
+                    onClick={() => setPendingRemove(row.id)}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+            );
+          })
+        )}
+        {message && <p className="text-sm text-[var(--muted)]">{message}</p>}
+        {error && <p className="text-sm text-[var(--error)]">{error}</p>}
+      </div>
+    </section>
   );
 }
 
@@ -3438,6 +3853,10 @@ function SettingsView({
           </div>
         )}
       </section>
+
+      {organization.role === "admin" && <ReportBrandingSettings />}
+
+      <PasskeySettings email={user.email} />
 
       <section className="sky-panel p-4 sm:p-5 xl:col-span-2">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -4017,7 +4436,7 @@ function Toggle({
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-2 rounded-xl text-sm font-semibold focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]"
+      className="inline-flex min-h-11 items-center gap-2 rounded-xl text-left text-sm font-semibold focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)]"
     >
       <span
         className={cn(
@@ -4055,7 +4474,7 @@ function Button({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-semibold transition-colors focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)] disabled:cursor-wait disabled:opacity-60 max-sm:w-full",
+        "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-4 text-sm font-semibold transition-colors focus:outline-none focus:ring-3 focus:ring-[var(--accent-subtle)] disabled:cursor-wait disabled:opacity-60 max-sm:w-full",
         tone === "primary" &&
           "border-[var(--accent-strong)] bg-[var(--accent)] text-[var(--raised)] shadow-[0_10px_24px_color-mix(in_oklch,var(--accent)_24%,transparent)] hover:bg-[var(--accent-strong)]",
         tone === "neutral" &&
@@ -4091,7 +4510,7 @@ function Pill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold",
         tones[tone],
       )}
     >

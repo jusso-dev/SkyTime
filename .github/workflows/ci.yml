@@ -22,26 +22,11 @@ jobs:
       run:
         working-directory: src/client/next-landing-page
     env:
-      DATABASE_URL: postgres://skytime:skytime@127.0.0.1:5432/skytime_ci
-      # Disposable CI database and session signing key; no production secrets.
+      # Disposable CI session signing key; no production secrets.
       BETTER_AUTH_SECRET: skytime-ci-only-disposable-session-signing-key
       BETTER_AUTH_URL: http://127.0.0.1:3100
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3100
       NEXT_TELEMETRY_DISABLED: "1"
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: skytime
-          POSTGRES_PASSWORD: skytime
-          POSTGRES_DB: skytime_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U skytime -d skytime_ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
     steps:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

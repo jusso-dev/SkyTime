@@ -68,7 +68,7 @@ Durations are integer milliseconds (1–2147483647). Timestamps are ISO 8601 wit
 
 ## Upgrade and verification
 
-From `src/client/next-landing-page`, with `DATABASE_URL` pointing to the intended database and `BETTER_AUTH_SECRET` set to a strong secret for production builds/runtime:
+From `src/client/next-landing-page`, with `BETTER_AUTH_SECRET` set to a strong secret for production builds/runtime. The database file defaults to `data/skytime.sqlite` (`SKYTIME_SQLITE` overrides it):
 
 ```sh
 npm ci
@@ -91,6 +91,6 @@ npx playwright install chromium
 npm run test:integration
 ```
 
-`DATABASE_URL` must be the same for the app and tests. `PLAYWRIGHT_BASE_URL` can override the default `http://127.0.0.1:3100`; `PLAYWRIGHT_SKIP_WEB_SERVER=1` uses a server you've already started. Tests run against a freshly migrated schema (CI proves the migrations themselves are repeatable by running them twice) and cover authorization, timer races, rollback, approval/invoice locks, rate snapshots, currencies, planning, MCP SDK interoperability, PDF content/pagination, and responsive UI. They generate fictional example reports/screenshots under `docs/`.
+Playwright sets `SKYTIME_SQLITE` to `data/skytime-test.sqlite` for both the server and the test process. `PLAYWRIGHT_BASE_URL` can override the default `http://127.0.0.1:3100`; `PLAYWRIGHT_SKIP_WEB_SERVER=1` uses a server you've already started. Tests run against a freshly migrated schema (CI proves the migrations themselves are repeatable by running them twice) and cover authorization, timer races, rollback, approval/invoice locks, rate snapshots, currencies, planning, MCP SDK interoperability, PDF content/pagination, and responsive UI. They generate fictional example reports/screenshots under `docs/`.
 
 Regression coverage also exercises mutations beyond the database pool's capacity, linked-task moves, duplicate tags, decimal-hour browser entries, local-date CSV/PDF downloads in Sydney and Los Angeles, and legacy timer recovery through conflicts and lost responses.

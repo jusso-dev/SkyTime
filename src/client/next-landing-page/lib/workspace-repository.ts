@@ -178,6 +178,16 @@ const PROJECT_COLUMNS =
   "id, name, client, client_id, rate, color, status, budget_hours, budget_amount, cost_rate, deadline, notes";
 const TIME_ENTRY_COLUMNS =
   "id, project_id, user_id, task, notes, started_at, duration_ms, billable, tags, task_id, hourly_rate, cost_rate, currency, invoice_id";
+
+// SQLite RETURNING does not include AFTER INSERT trigger updates, so the rate
+// snapshot trigger is invisible on the insert result.
+export async function readTimeEntry(id: string) {
+  const result = await query<TimeEntryRow>(
+    `select ${TIME_ENTRY_COLUMNS} from time_entries where id = $1`,
+    [id],
+  );
+  return result.rows[0];
+}
 const TASK_COLUMNS = "id, project_id, title, status, estimate_hours";
 const CLIENT_COLUMNS =
   "id, name, contact_name, contact_email, address, currency, default_rate, notes, archived_at";
@@ -295,17 +305,17 @@ export async function refreshPeriodTotals(
   periodStart: string,
 ) {
   await query(
-    `update timesheet_periods tp
+    `update timesheet_periods
      set total_ms = coalesce((
        select sum(te.duration_ms)::bigint
        from time_entries te
-       where te.organization_id = tp.organization_id
-         and te.user_id = tp.user_id
-         and te.started_at >= tp.period_start
-         and te.started_at < tp.period_end + interval '1 day'
+       where te.organization_id = timesheet_periods.organization_id
+         and te.user_id = timesheet_periods.user_id
+         and te.started_at >= timesheet_periods.period_start
+         and te.started_at < timesheet_periods.period_end + interval '1 day'
      ), 0),
      updated_at = now()
-     where tp.organization_id = $1 and tp.user_id = $2 and tp.period_start = $3`,
+     where organization_id = $1 and user_id = $2 and period_start = $3`,
     [organizationId, userId, periodStart],
   );
 }
@@ -335,15 +345,18 @@ export async function getWorkspace(
   userId: string,
   userEmail: string | null,
 ) {
-  const [projects, entries, tasks, clients, settings, currentPeriod] =
-    await Promise.all([
-      listProjects(organizationId),
-      listEntries(organizationId),
-      listTasks(organizationId),
-      listClients(organizationId),
-      getSettings(organizationId),
-      getOrCreateCurrentPeriod(organizationId, userId, userEmail),
-    ]);
+  // One D1 binding only has one query in flight. Promise.all here deadlocks
+  // the homepage and /api/workspace until the browser gives up.
+  const projects = await listProjects(organizationId);
+  const entries = await listEntries(organizationId);
+  const tasks = await listTasks(organizationId);
+  const clients = await listClients(organizationId);
+  const settings = await getSettings(organizationId);
+  const currentPeriod = await getOrCreateCurrentPeriod(
+    organizationId,
+    userId,
+    userEmail,
+  );
 
   return { projects, entries, tasks, clients, settings, currentPeriod };
 }

@@ -6,9 +6,10 @@ import {
 } from "@playwright/test";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { Pool } from "pg";
+import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { seedCredential, TEST_PASSWORD } from "./credentials";
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3100";
 let admin: APIRequestContext,
   other: APIRequestContext,
@@ -18,24 +19,33 @@ let projectId: string,
   otherProjectId: string,
   token: string,
   readToken: string;
-const db = new Pool({
-  connectionString:
-    process.env.DATABASE_URL ??
-    "postgres://skytime:skytime@localhost:55432/skytime",
-});
+const db = new DatabaseSync(process.env.SKYTIME_SQLITE ?? "data/skytime-test.sqlite");
+db.exec("PRAGMA busy_timeout = 5000");
+function dbQuery(text: string, params: unknown[] = []) {
+  const next: unknown[] = [];
+  const sql = text.replace(/\$(\d+)/g, (_match, index: string) => {
+    const value = params[Number(index) - 1];
+    next.push(Array.isArray(value) ? JSON.stringify(value) : (value ?? null));
+    return "?";
+  });
+  const statement = db.prepare(sql);
+  if (statement.columns().length > 0) return { rows: statement.all(...(next as [])) };
+  statement.run(...(next as []));
+  return { rows: [] as Record<string, unknown>[] };
+}
 async function json(r: Awaited<ReturnType<APIRequestContext["get"]>>) {
   expect(r.ok(), await r.text()).toBeTruthy();
   return r.json();
 }
 async function account(name: string) {
   const api = await requestFactory.newContext({ baseURL });
+  const health = await api.get("/api/v1/health");
+  expect(health.ok(), await health.text()).toBeTruthy();
+  const email = `${name}-${Date.now()}@example.com`;
+  await seedCredential({ name, email, password: TEST_PASSWORD });
   await json(
-    await api.post("/api/auth/sign-up/email", {
-      data: {
-        name,
-        email: `${name}-${Date.now()}@example.com`,
-        password: "A-strong-test-password-123!",
-      },
+    await api.post("/api/auth/sign-in/email", {
+      data: { email, password: TEST_PASSWORD },
     }),
   );
   await json(
@@ -133,16 +143,12 @@ const EXPECTED_ACTIONS = [
 ].sort();
 test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
-  if (!process.env.DATABASE_URL)
-    throw new Error(
-      "Set DATABASE_URL to a dedicated migrated test database before running integration tests.",
-    );
   admin = await account("Harbour");
   other = await account("Wattle");
   member = await account("Member");
   const aw = await json(await admin.get("/api/workspace"));
   const mw = await json(await member.get("/api/workspace"));
-  await db.query(
+  dbQuery(
     "update organization_memberships set organization_id=$1,role='member' where user_id=$2",
     [aw.organization.id, mw.user.id],
   );
@@ -199,7 +205,7 @@ test.afterAll(async () => {
     admin?.dispose(),
     other?.dispose(),
     member?.dispose(),
-    db.end(),
+    Promise.resolve(db.close()),
   ]);
 });
 test("tenant boundaries, credential scopes and schema validation", async () => {
@@ -370,12 +376,12 @@ test("rates are captured, imports are atomic, approval and invoice locks hold", 
   expect(Number(invoice.total)).toBe(196.35);
   const invoicePdf = await admin.get(`/api/v1/invoices/${invoice.id}/pdf`);
   expect(invoicePdf.ok()).toBeTruthy();
-  await fs.mkdir(path.resolve(__dirname, "../../../../docs/reports"), {
+  await fs.mkdir(path.resolve(import.meta.dirname, "../../../../docs/reports"), {
     recursive: true,
   });
   await fs.writeFile(
     path.resolve(
-      __dirname,
+      import.meta.dirname,
       "../../../../docs/reports/skytime-sample-invoice.pdf",
     ),
     await invoicePdf.body(),
@@ -665,12 +671,12 @@ test("PDF pagination preserves detailed notes and member attribution; CSV escape
   );
   expect(response.ok(), await response.text()).toBeTruthy();
   const bytes = await response.body();
-  await fs.mkdir(path.resolve(__dirname, "../../../../docs/reports"), {
+  await fs.mkdir(path.resolve(import.meta.dirname, "../../../../docs/reports"), {
     recursive: true,
   });
   await fs.writeFile(
     path.resolve(
-      __dirname,
+      import.meta.dirname,
       "../../../../docs/reports/skytime-sample-report.pdf",
     ),
     bytes,
@@ -758,7 +764,7 @@ test("PDF pagination preserves detailed notes and member attribution; CSV escape
   expect(sample.ok()).toBeTruthy();
   await fs.writeFile(
     path.resolve(
-      __dirname,
+      import.meta.dirname,
       "../../../../docs/reports/skytime-sample-report.pdf",
     ),
     await sample.body(),
@@ -790,7 +796,7 @@ test("new screens render on desktop and mobile and browser timer persists on rel
   await expect(
     page.getByRole("button", { name: "Start timer", exact: true }),
   ).toBeVisible();
-  const screenshotDir = path.resolve(__dirname, "../../../../docs/screenshots");
+  const screenshotDir = path.resolve(import.meta.dirname, "../../../../docs/screenshots");
   await fs.mkdir(screenshotDir, { recursive: true });
   for (const [nav, title, name] of [
     ["Reports", "Every hour, accounted for.", "reports"],
@@ -960,7 +966,7 @@ test("task moves preserve linked time through approval and invoice assignment", 
       })
     ).status(),
   ).toBe(409);
-  const records = await db.query(
+  const records = dbQuery(
     "select t.project_id, e.project_id as entry_project_id, e.invoice_id from board_tasks t join time_entries e on e.task_id=t.id where t.id=$1",
     [task.id],
   );
@@ -1013,7 +1019,7 @@ test("duplicate tags are normalized on writes and counted once for historical en
   );
   expect(stopped.tags).toEqual(["Design"]);
   // Simulate rows saved before normalization was introduced.
-  await db.query("update time_entries set tags=$2 where id=$1", [
+  dbQuery("update time_entries set tags=$2 where id=$1", [
     imported[0].id,
     ["Design", "Design", "Review"],
   ]);

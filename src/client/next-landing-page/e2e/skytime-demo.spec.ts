@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { seedCredential, TEST_PASSWORD } from "./credentials";
 
 const screenshotDir = path.resolve(
   process.cwd(),
@@ -48,13 +49,13 @@ async function seedWorkspace(page: Page, label: string) {
   const runId = `${label}-${Date.now()}`;
   const email = `demo-${runId}@example.com`;
 
+  const health = await page.request.get("/api/v1/health");
+  expect(health.ok(), await health.text()).toBeTruthy();
+  await seedCredential({ name: "Justin Demo", email, password: TEST_PASSWORD });
   await page.goto("/");
-  await page.getByRole("button", { name: "Create account" }).first().click();
-  await page.getByLabel("Name").fill("Justin Demo");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password", { exact: true }).fill("Password123!");
-  await page.getByLabel("Confirm password").fill("Password123!");
-  await page.getByRole("button", { name: "Create account" }).last().click();
+  await page.getByLabel("Password", { exact: true }).fill(TEST_PASSWORD);
+  await page.getByRole("button", { name: "Sign in" }).click();
 
   await page.getByLabel("Organization name").fill(`SkyTime Demo ${label}`);
   await page.getByRole("button", { name: "Create organization" }).click();

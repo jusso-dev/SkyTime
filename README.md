@@ -6,8 +6,8 @@
 
 Clean multi-tenant time tracking software with projects, clients, task boards,
 browser reminders, weekly timesheet approvals, polished CSV/PDF timesheet
-exports, full audit logging, captured server errors, and Postgres-backed
-workspace data.
+exports, full audit logging, captured server errors, and a SQLite
+workspace. Production uses Cloudflare D1. Logos live in R2.
 
 ## Features
 
@@ -15,7 +15,7 @@ workspace data.
 - **Time tracking.** Persistent cross-device timers, manual entries, duplicate/resume, tags, task links, atomic bulk edits and imports, captured rates/currencies, and approved/invoiced entry locks.
 - **Projects and clients.** Contact and billing details, project templates, rates and costs, hours/fee budgets, deadlines, notes, task boards and profitability/budget views.
 - **Reporting.** Filter by period, project, client, member, tag and billing state; group by project/client/member/day/tag; save views; inspect daily grids; round entries for reporting. Export detailed multipage PDFs with the SkyTime logo or your uploaded logo, business identity and tax settings, plus spreadsheet-safe CSVs.
-- **Billing.** Project expenses and invoices from unbilled time/expenses. Draft, issued, paid and void lifecycle; immutable line/client snapshots; atomic reservation prevents double billing; branded invoice PDFs.
+- **Billing.** Project expenses and invoices from unbilled time/expenses. Draft, issued, paid and void lifecycle; immutable line/client snapshots; invoice creation claims only rows that are still unbilled; branded invoice PDFs.
 - **Planning.** Schedule project work, configure weekly member capacity, compare planned/actual utilization and overbooking, and request/review time off.
 - **Approvals and team controls.** Weekly submission/review/reopening, admin/member roles, invitations, two-factor authentication, audit/error logs and strict tenant validation.
 
@@ -26,22 +26,36 @@ See the [feature review and explicit limits](docs/feature-research.md). This exp
 ## Local development
 
 ```bash
-docker compose up -d
 cd src/client/next-landing-page
 npm ci
-npm run auth:migrate   # better-auth tables
+npm run auth:migrate   # better-auth tables in data/skytime.sqlite
 npm run db:migrate     # SkyTime schema
 npm run dev
 ```
 
-The app boots at <http://localhost:3000>. Sign up creates a user; the first
-sign-in prompts for an organization name.
+The app boots at <http://localhost:3000> and stores data in `data/skytime.sqlite`. Set `SKYTIME_SQLITE` to use another file. Sign up creates a user; the first sign-in prompts for an organization name. Logos are written under `data/attachments/`.
+
+## Cloudflare Workers
+
+Production runs the same Next.js app on Cloudflare Workers through [vinext](https://vinext.dev/). The database is a D1 binding named `DB`. Report logos use an R2 binding named `ATTACHMENTS`. Local `next dev`, CI, and `npm start` use Node's `node:sqlite` against the same schema. The first request also applies the schema and better-auth tables.
+
+From `src/client/next-landing-page`:
+
+```bash
+npm run dev:vinext    # Workers runtime on port 3001, local D1 and R2
+npm run build:vinext
+npm run deploy:vinext
+```
+
+Create the remote D1 database and R2 bucket before deploy, then set `CLOUDFLARE_D1_ID` to the database id. The bucket name is `skytime-attachments` and the D1 name is `skytime`. Put `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and `NEXT_PUBLIC_APP_URL` in the Worker environment. `RESEND_API_KEY` and `RESEND_FROM` are optional. `NEXT_PUBLIC_APP_URL` and `BETTER_AUTH_URL` must be the public Workers origin in production.
+
+D1 has no interactive transactions. Each statement commits on its own. Row rules (approved weeks, invoiced locks, project ownership) are SQLite triggers. Invoice creation only updates rows whose `invoice_id` is still null.
 
 ## Continuous integration
 
-[CI](.github/workflows/ci.yml) runs on pushes to `main` and pull requests. It installs the lockfile with Node.js 22, audits dependencies for high/critical vulnerabilities, generates Next.js types, checks TypeScript, builds production assets, and tests fresh and repeatable migrations against disposable PostgreSQL 18. The 14 API/MCP/browser integration tests and two desktop/mobile smoke tests run against the production server. Failed browser runs retain reports and traces for seven days. Trivy scanning runs in its existing workflow.
+[CI](.github/workflows/ci.yml) runs on pushes to `main` and pull requests. It installs the lockfile with Node.js 22, audits dependencies for high/critical vulnerabilities, generates Next.js types, checks TypeScript, builds production assets, and applies the SQLite schema twice. The audit currently fails on unpatched `braces` pulled in by vinext. The API/MCP/browser integration tests and desktop/mobile smoke tests run against the production server and a separate `data/skytime-test.sqlite` file. Failed browser runs retain reports and traces for seven days. Trivy scanning runs in its existing workflow.
 
-To reproduce CI tests locally, set `DATABASE_URL` to a dedicated migrated test database, configure `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` for `http://127.0.0.1:3100`, run `npm run build`, then run `CI=1 npm run test:integration` and `CI=1 npm run demo:screenshots` from the Next.js app directory. Each suite starts and stops its own production server.
+To reproduce CI tests locally, configure `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` for `http://127.0.0.1:3100`, run `npm run build`, then run `CI=1 npm run test:integration` and `CI=1 npm run demo:screenshots` from the Next.js app directory. Each suite starts and stops its own production server.
 
 ## Optional integrations
 
@@ -56,47 +70,7 @@ To reproduce CI tests locally, set `DATABASE_URL` to a dedicated migrated test d
 
 ## Backups
 
-SkyTime includes Docker-based Postgres backups. Backups are written as custom-format `pg_dump` files so they can be restored with `pg_restore`.
-
-Create a local file-backed backup:
-
-```bash
-docker compose --profile backup run --rm backup-local
-```
-
-The dump and `.sha256` checksum are persisted under `./backups`, which is ignored by git except for the placeholder directory.
-
-For S3-compatible storage, copy the example env file and fill in your bucket, endpoint, and credentials:
-
-```bash
-cp .env.backup.example .env.backup
-```
-
-Then run:
-
-```bash
-docker compose --env-file .env.backup --profile backup-s3 run --rm backup-s3
-```
-
-`S3_ENDPOINT_URL` supports S3-compatible providers such as MinIO, Cloudflare R2, Backblaze B2, and Wasabi. Leave it empty for AWS S3. `S3_FORCE_PATH_STYLE=true` is useful for MinIO and many self-hosted S3-compatible services.
-
-Restore from a local backup file:
-
-```bash
-RESTORE_FILE=skytime-skytime-20260511T010000Z.dump \
-CONFIRM_RESTORE=true \
-docker compose --profile restore run --rm restore
-```
-
-Restore directly from S3-compatible storage:
-
-```bash
-RESTORE_FILE=s3://your-bucket/skytime/postgres/skytime-skytime-20260511T010000Z.dump \
-CONFIRM_RESTORE=true \
-docker compose --env-file .env.backup --profile restore run --rm restore
-```
-
-Restores replace objects in the configured Postgres database. Stop the app process before restoring into a live environment.
+The app database is the SQLite file locally and D1 in production. Copy `data/skytime.sqlite` (and `data/attachments/` for logos) to back up a local workspace. Production backups are D1 and R2 exports. The Docker Postgres backup scripts in this repo are not the app database.
 
 ## Demo Screenshots
 

@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+process.env.SKYTIME_SQLITE ??= "data/skytime-test.sqlite";
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 180_000,
@@ -33,7 +35,8 @@ export default defineConfig({
         timeout: 120_000,
         env: {
           ...process.env,
-          BETTER_AUTH_URL: "http://127.0.0.1:3100",
+          // rpID follows this hostname. Chrome rejects an IP address rpID.
+          BETTER_AUTH_URL: "http://localhost:3100",
           NEXT_PUBLIC_APP_URL: "http://127.0.0.1:3100",
         },
       },

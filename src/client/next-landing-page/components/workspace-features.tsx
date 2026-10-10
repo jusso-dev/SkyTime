@@ -23,9 +23,17 @@ async function api<T>(
     headers: { "content-type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  const data = await r.json();
+  const text = await r.text();
+  let data: { error?: string };
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(
+      r.ok ? "API returned a non-JSON response" : `API request failed (${r.status})`,
+    );
+  }
   if (!r.ok) throw new Error(data.error ?? "Request failed");
-  return data;
+  return data as T;
 }
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (

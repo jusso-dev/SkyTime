@@ -1,12 +1,13 @@
 import { SkyTimeWorkspace } from "@/components/skytime-workspace";
 import { auth } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { ensureReady, query } from "@/lib/db";
 import { getWorkspace } from "@/lib/workspace-repository";
 import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  await ensureReady();
   const session = await auth.api.getSession({
     headers: await headers(),
   });

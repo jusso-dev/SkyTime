@@ -1,6 +1,8 @@
+import { getLogo } from "@/lib/attachments";
 import { query } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import type { Tenant } from "@/lib/tenant";
+import { localDate, nextUtcDay, zonedMidnightUtc } from "@/lib/zoned-day";
 import { filters } from "@/lib/automation/schemas";
 import type { z } from "zod";
 export type ReportFilters = z.infer<typeof filters>;
@@ -22,13 +24,23 @@ export async function getBranding(tenant: Tenant): Promise<Branding> {
     [tenant.organization.id],
   );
   const b = r.rows[0];
+  let logoDataUrl: string | null = null;
+  if (b?.logo_key) {
+    const logo = await getLogo(String(b.logo_key));
+    if (logo) {
+      logoDataUrl = `data:${logo.contentType};base64,${Buffer.from(logo.bytes).toString("base64")}`;
+    }
+  }
+  if (!logoDataUrl && typeof b?.logo_data_url === "string" && b.logo_data_url.startsWith("data:")) {
+    logoDataUrl = b.logo_data_url;
+  }
   return {
     companyName: b?.company_name || tenant.organization.name,
     address: b?.address ?? "",
     email: b?.email ?? "",
     taxId: b?.tax_id ?? "",
     footer: b?.footer ?? "Thank you for working with us.",
-    logoDataUrl: b?.logo_data_url ?? null,
+    logoDataUrl,
     accentColor: b?.accent_color ?? "#2563eb",
     taxPercent: Number(b?.tax_percent ?? 10),
     currency: b?.currency ?? "AUD",
@@ -132,14 +144,14 @@ export async function buildReport(tenant: Tenant, input: ReportFilters) {
   const timezone = validateTimezone(f.timezone ?? branding.timezone);
   if (f.from && f.to && f.from > f.to)
     throw new ValidationError("From date must be before To date");
-  const params: unknown[] = [tenant.organization.id, timezone];
+  const params: unknown[] = [tenant.organization.id];
   const where = ["e.organization_id=$1"];
   const add = (sql: string, v: unknown) => {
     params.push(v);
     where.push(sql.replace("?", `$${params.length}`));
   };
-  if (f.from) add("(e.started_at at time zone $2)::date >= ?::date", f.from);
-  if (f.to) add("(e.started_at at time zone $2)::date <= ?::date", f.to);
+  if (f.from) add("e.started_at >= ?", zonedMidnightUtc(f.from, timezone));
+  if (f.to) add("e.started_at < ?", zonedMidnightUtc(nextUtcDay(f.to), timezone));
   if (f.projectId) add("e.project_id=?", f.projectId);
   if (f.clientId) add("p.client_id=?", f.clientId);
   if (f.userId) add("e.user_id=?", f.userId);
@@ -149,11 +161,11 @@ export async function buildReport(tenant: Tenant, input: ReportFilters) {
     where.push(`e.invoice_id is ${f.invoiced ? "not " : ""}null`);
   if (f.search)
     add(
-      "concat_ws(' ',e.task,e.notes,p.name,c.name) ilike ?",
+      "(coalesce(e.task,'') || ' ' || coalesce(e.notes,'') || ' ' || coalesce(p.name,'') || ' ' || coalesce(c.name,'')) like ? escape '\\'",
       `%${f.search.replace(/[\\%_]/g, "\\$&")}%`,
     );
   const r = await query(
-    `select e.*,p.name as project,c.id as client_id,coalesce(c.name,p.client,'No client') as client,coalesce(u.name,u.email,'Unassigned') as member,to_char(e.started_at at time zone $2,'YYYY-MM-DD') as local_date
+    `select e.*,p.name as project,c.id as client_id,coalesce(c.name,p.client,'No client') as client,coalesce(u.name,u.email,'Unassigned') as member
  from time_entries e join projects p on p.id=e.project_id left join clients c on c.id=p.client_id left join "user" u on u.id=e.user_id where ${where.join(" and ")} order by e.started_at asc,e.id`,
     params,
   );
@@ -173,7 +185,7 @@ export async function buildReport(tenant: Tenant, input: ReportFilters) {
       task: e.task,
       notes: e.notes,
       startedAt: e.started_at.toISOString(),
-      date: e.local_date,
+      date: localDate(e.started_at, timezone),
       durationMs: e.duration_ms,
       roundedMs,
       billable: e.billable,

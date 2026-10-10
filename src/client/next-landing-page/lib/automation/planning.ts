@@ -1,4 +1,5 @@
 import { query } from "@/lib/db";
+import { nextUtcDay, zonedMidnightUtc } from "@/lib/zoned-day";
 import {
   ConflictError,
   ForbiddenError,
@@ -179,13 +180,17 @@ export async function workload(c: Context, a: { from: string; to: string }) {
   ).rows;
   const actual = (
     await query(
-      "select user_id,sum(duration_ms)/3600000.0 as hours,sum(case when billable then duration_ms else 0 end)/3600000.0 as billable from time_entries where organization_id=$1 and (started_at at time zone $4)::date between $2::date and $3::date group by user_id",
-      [c.tenant.organization.id, a.from, a.to, b.timezone],
+      "select user_id,sum(duration_ms)/3600000.0 as hours,sum(case when billable then duration_ms else 0 end)/3600000.0 as billable from time_entries where organization_id=$1 and started_at >= $2 and started_at < $3 group by user_id",
+      [
+        c.tenant.organization.id,
+        zonedMidnightUtc(a.from, b.timezone).toISOString(),
+        zonedMidnightUtc(nextUtcDay(a.to), b.timezone).toISOString(),
+      ],
     )
   ).rows;
   const leave = (
     await query(
-      "select user_id,to_char(greatest(start_date,$2::date),'YYYY-MM-DD') as start,to_char(least(end_date,$3::date),'YYYY-MM-DD') as end from time_off where organization_id=$1 and status='approved' and start_date<=$3::date and end_date>=$2::date",
+      "select user_id,max(start_date,$2) as start,min(end_date,$3) as end from time_off where organization_id=$1 and status='approved' and start_date<=$3 and end_date>=$2",
       [c.tenant.organization.id, a.from, a.to],
     )
   ).rows;

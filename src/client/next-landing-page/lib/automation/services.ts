@@ -1,7 +1,9 @@
-import PDFDocument from "pdfkit";
+import PDFDocument from "@/lib/reports/pdf-document";
+import { deleteLogo, putLogo, sniffImage } from "@/lib/attachments";
 import { entryTags } from "@/lib/validation";
 import { createHash, randomBytes } from "node:crypto";
 import { query, transaction } from "@/lib/db";
+import { nextUtcDay, zonedMidnightUtc } from "@/lib/zoned-day";
 import {
   ConflictError,
   ForbiddenError,
@@ -13,6 +15,7 @@ import type { Tenant } from "@/lib/tenant";
 import {
   entryFromRow,
   TIME_ENTRY_COLUMNS,
+  readTimeEntry,
   currentPeriodWindow,
   PERIOD_COLUMNS,
   periodFromRow,
@@ -26,7 +29,6 @@ import {
   type ReportFilters,
 } from "@/lib/reports/data";
 import { branding as brandingSchema } from "./schemas";
-import type { PoolClient } from "pg";
 export type Context = { tenant: Tenant; request: Request };
 export function admin(c: Context) {
   if (c.tenant.organization.role !== "admin")
@@ -41,11 +43,6 @@ export async function audit(
   after?: unknown,
 ) {
   await recordAudit({ ...c, entityType, action, entityId, summary, after });
-}
-async function lock(client: PoolClient, c: Context) {
-  await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [
-    c.tenant.organization.id + c.tenant.user.id,
-  ]);
 }
 export async function timerGet(c: Context) {
   const r = await query(
@@ -81,7 +78,6 @@ export async function timerStart(
   if (Date.parse(startedAt) > Date.now() + 1000)
     throw new ValidationError("Timer cannot start in the future");
   await transaction(async (db) => {
-    await lock(db, c);
     const project = await db.query(
       "select id from projects where id=$1 and organization_id=$2 and status='Active'",
       [a.projectId, c.tenant.organization.id],
@@ -127,7 +123,6 @@ export async function timerStop(
   },
 ) {
   const entry = await transaction(async (db) => {
-    await lock(db, c);
     const r = await db.query(
       "select * from running_timers where id=$1 and organization_id=$2 and user_id=$3 for update",
       [a.id, c.tenant.organization.id, c.tenant.user.id],
@@ -155,7 +150,7 @@ export async function timerStop(
       ],
     );
     await db.query("delete from running_timers where id=$1", [a.id]);
-    return entryFromRow(result.rows[0]);
+    return entryFromRow((await readTimeEntry(result.rows[0].id)) ?? result.rows[0]);
   });
   await audit(
     c,
@@ -194,7 +189,7 @@ export async function tokensCreate(
     );
   const token = "st_" + randomBytes(32).toString("base64url");
   const r = await query(
-    "insert into api_tokens(organization_id,user_id,name,token_hash,prefix,scope,expires_at) values($1,$2,$3,$4,$5,$6,now()+$7*interval '1 day') returning id,name,prefix,scope,expires_at",
+    "insert into api_tokens(organization_id,user_id,name,token_hash,prefix,scope,expires_at) values($1,$2,$3,$4,$5,$6,strftime('%Y-%m-%dT%H:%M:%fZ','now','+' || $7 || ' days')) returning id,name,prefix,scope,expires_at",
     [
       c.tenant.organization.id,
       c.tenant.user.id,
@@ -230,13 +225,24 @@ export async function brandingUpdate(c: Context, input: unknown) {
   if (a.timezone) validateTimezone(a.timezone);
   const current = await getBranding(c.tenant);
   const b = { ...current, ...a };
-  if (b.logoDataUrl) {
-    const data = Buffer.from(b.logoDataUrl.split(",")[1], "base64");
-    const png = data
-      .subarray(0, 8)
-      .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-    const jpg = data[0] === 255 && data[1] === 216;
-    if ((!png && !jpg) || data.length > 1000000)
+  const stored = await query<{ logo_key: string | null }>(
+    "select logo_key from report_branding where organization_id=$1",
+    [c.tenant.organization.id],
+  );
+  let logoKey = stored.rows[0]?.logo_key ?? null;
+  let storedLogo: string | null = null;
+  if (a.logoDataUrl === null) {
+    if (logoKey) await deleteLogo(logoKey);
+    logoKey = null;
+  } else if (typeof a.logoDataUrl === "string") {
+    const data = Buffer.from(a.logoDataUrl.split(",")[1] ?? "", "base64");
+    let contentType: string;
+    try {
+      contentType = sniffImage(data);
+    } catch {
+      contentType = "";
+    }
+    if (!contentType || data.length > 1000000)
       throw new ValidationError(
         "Logo must be a valid PNG or JPEG smaller than 1 MB",
       );
@@ -249,9 +255,12 @@ export async function brandingUpdate(c: Context, input: unknown) {
     } finally {
       probe.end();
     }
+    logoKey = await putLogo(c.tenant.organization.id, data, contentType);
+  } else if (typeof current.logoDataUrl === "string" && current.logoDataUrl.startsWith("data:") && !logoKey) {
+    storedLogo = current.logoDataUrl;
   }
   await query(
-    `insert into report_branding(organization_id,company_name,address,email,tax_id,footer,logo_data_url,accent_color,tax_percent,currency,timezone) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) on conflict(organization_id) do update set company_name=$2,address=$3,email=$4,tax_id=$5,footer=$6,logo_data_url=$7,accent_color=$8,tax_percent=$9,currency=$10,timezone=$11`,
+    `insert into report_branding(organization_id,company_name,address,email,tax_id,footer,logo_data_url,logo_key,accent_color,tax_percent,currency,timezone) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) on conflict(organization_id) do update set company_name=$2,address=$3,email=$4,tax_id=$5,footer=$6,logo_data_url=$7,logo_key=$8,accent_color=$9,tax_percent=$10,currency=$11,timezone=$12`,
     [
       c.tenant.organization.id,
       b.companyName,
@@ -259,7 +268,8 @@ export async function brandingUpdate(c: Context, input: unknown) {
       b.email,
       b.taxId,
       b.footer,
-      b.logoDataUrl,
+      storedLogo,
+      logoKey,
       b.accentColor,
       b.taxPercent,
       b.currency,
@@ -350,15 +360,15 @@ export async function projectInsights(c: Context) {
   const rows = (
     await query(
       `select p.id,p.name,p.status,p.budget_hours,p.budget_amount,p.deadline,
-    coalesce((select sum(duration_ms)/3600000.0 from time_entries where project_id=p.id),0)::float as hours,
+    coalesce((select sum(duration_ms)/3600000.0 from time_entries where project_id=p.id),0) as hours,
     coalesce(cl.currency,b.currency,'AUD') as currency,
-    (select coalesce(jsonb_agg(f),'[]'::jsonb) from (
-      select currency,coalesce(sum(case when billable then round(duration_ms/3600000.0*hourly_rate,2) else 0 end),0)::float as revenue,
-      coalesce(sum(round(duration_ms/3600000.0*cost_rate,2)),0)::float as cost
+    (select coalesce(json_group_array(json_object('currency',currency,'revenue',revenue,'cost',cost)),'[]') from (
+      select currency,coalesce(sum(case when billable then round(duration_ms/3600000.0*hourly_rate,2) else 0 end),0) as revenue,
+      coalesce(sum(round(duration_ms/3600000.0*cost_rate,2)),0) as cost
       from time_entries where project_id=p.id group by currency
-    ) f) as financials,
-    (select count(*)::int from board_tasks where project_id=p.id and status='Done') as completed_tasks,
-    (select count(*)::int from board_tasks where project_id=p.id) as total_tasks
+    )) as financials,
+    (select count(*) from board_tasks where project_id=p.id and status='Done') as completed_tasks,
+    (select count(*) from board_tasks where project_id=p.id) as total_tasks
     from projects p left join clients cl on cl.id=p.client_id left join report_branding b on b.organization_id=p.organization_id
     where p.organization_id=$1 order by p.name`,
       [c.tenant.organization.id],
@@ -474,7 +484,7 @@ export async function invoicesList(c: Context) {
 export async function invoiceGet(c: Context, a: { id: string }) {
   admin(c);
   const r = await query(
-    "select *,to_char(issued_date,'YYYY-MM-DD') as issued_date,to_char(due_date,'YYYY-MM-DD') as due_date from invoices where id=$1 and organization_id=$2",
+    "select * from invoices where id=$1 and organization_id=$2",
     [a.id, c.tenant.organization.id],
   );
   if (!r.rows[0]) throw new NotFoundError();
@@ -497,10 +507,9 @@ export async function invoiceCreate(
   if (a.from > a.to || a.issuedDate > a.dueDate)
     throw new ValidationError("Invalid invoice date range");
   const branding = await getBranding(c.tenant);
+  const fromUtc = zonedMidnightUtc(a.from, branding.timezone).toISOString();
+  const toExclusive = zonedMidnightUtc(nextUtcDay(a.to), branding.timezone).toISOString();
   const invoice = await transaction(async (db) => {
-    await db.query("select pg_advisory_xact_lock(hashtextextended($1,1))", [
-      c.tenant.organization.id,
-    ]);
     const client = (
       await db.query(
         "select * from clients where id=$1 and organization_id=$2",
@@ -510,8 +519,8 @@ export async function invoiceCreate(
     if (!client) throw new NotFoundError("Client not found");
     const entries = (
       await db.query(
-        `select e.*,p.name as project from time_entries e join projects p on p.id=e.project_id where e.organization_id=$1 and p.client_id=$2 and e.billable and e.invoice_id is null and (e.started_at at time zone $5)::date between $3::date and $4::date order by e.started_at for update of e`,
-        [c.tenant.organization.id, a.clientId, a.from, a.to, branding.timezone],
+        `select e.*,p.name as project from time_entries e join projects p on p.id=e.project_id where e.organization_id=$1 and p.client_id=$2 and e.billable and e.invoice_id is null and e.started_at >= $3 and e.started_at < $4 order by e.started_at`,
+        [c.tenant.organization.id, a.clientId, fromUtc, toExclusive],
       )
     ).rows;
     const expenses = (
@@ -568,14 +577,28 @@ export async function invoiceCreate(
         JSON.stringify(branding),
       ],
     );
+    const entryIds = entries.map((e) => e.id);
+    const expenseIds = expenses.map((e) => e.id);
     await db.query(
-      "update time_entries set invoice_id=$1 where id=any($2::uuid[])",
-      [r.rows[0].id, entries.map((e) => e.id)],
+      "update time_entries set invoice_id=$1 where invoice_id is null and id=any($2::uuid[])",
+      [r.rows[0].id, entryIds],
     );
     await db.query(
-      "update expenses set invoice_id=$1 where id=any($2::uuid[])",
-      [r.rows[0].id, expenses.map((e) => e.id)],
+      "update expenses set invoice_id=$1 where invoice_id is null and id=any($2::uuid[])",
+      [r.rows[0].id, expenseIds],
     );
+    const claimedEntries = await db.query<{ n: number }>(
+      "select count(*) as n from time_entries where invoice_id=$1 and id=any($2::uuid[])",
+      [r.rows[0].id, entryIds],
+    );
+    const claimedExpenses = await db.query<{ n: number }>(
+      "select count(*) as n from expenses where invoice_id=$1 and id=any($2::uuid[])",
+      [r.rows[0].id, expenseIds],
+    );
+    if (Number(claimedEntries.rows[0]?.n) !== entries.length)
+      throw new ConflictError("Time was already invoiced");
+    if (Number(claimedExpenses.rows[0]?.n) !== expenses.length)
+      throw new ConflictError("An expense was already invoiced");
     return r.rows[0];
   });
   await audit(
@@ -662,9 +685,8 @@ export async function entriesBulk(
   a: { ids: string[]; billable?: boolean; projectId?: string; tags?: string[] },
 ) {
   const entries = await transaction(async (db) => {
-    await lock(db, c);
     const r = await db.query(
-      "select * from time_entries where id=any($1::uuid[]) and organization_id=$2 order by id for update",
+      "select * from time_entries where id=any($1::uuid[]) and organization_id=$2 order by id",
       [a.ids, c.tenant.organization.id],
     );
     if (r.rows.length !== new Set(a.ids).size)
@@ -709,29 +731,43 @@ export async function entriesImport(
     }[];
   },
 ) {
-  const entries = await transaction(async (db) => {
-    await lock(db, c);
-    const results = [];
-    for (const e of a.entries) {
-      const r = await db.query(
-        `insert into time_entries(organization_id,user_id,project_id,task,notes,started_at,duration_ms,billable,tags,task_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning ${TIME_ENTRY_COLUMNS}`,
-        [
-          c.tenant.organization.id,
-          c.tenant.user.id,
-          e.projectId,
-          e.task,
-          e.notes ?? "",
-          e.startedAt,
-          e.durationMs,
-          e.billable ?? true,
-          entryTags(e.tags),
-          e.taskId ?? null,
-        ],
-      );
-      results.push(entryFromRow(r.rows[0]));
+  const createdIds: string[] = [];
+  let entries;
+  try {
+    entries = await transaction(async (db) => {
+      const results = [];
+      for (const e of a.entries) {
+        const r = await db.query(
+          `insert into time_entries(organization_id,user_id,project_id,task,notes,started_at,duration_ms,billable,tags,task_id) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning ${TIME_ENTRY_COLUMNS}`,
+          [
+            c.tenant.organization.id,
+            c.tenant.user.id,
+            e.projectId,
+            e.task,
+            e.notes ?? "",
+            e.startedAt,
+            e.durationMs,
+            e.billable ?? true,
+            entryTags(e.tags),
+            e.taskId ?? null,
+          ],
+        );
+        const id = r.rows[0].id as string;
+        createdIds.push(id);
+        results.push(entryFromRow((await readTimeEntry(id)) ?? r.rows[0]));
+      }
+      return results;
+    });
+  } catch (error) {
+    // D1 has no BEGIN. A later row can fail after earlier inserts committed.
+    if (createdIds.length) {
+      await query(
+        `delete from time_entries where organization_id = $1 and id in (select value from json_each($2))`,
+        [c.tenant.organization.id, JSON.stringify(createdIds)],
+      ).catch(() => undefined);
     }
-    return results;
-  });
+    throw error;
+  }
   await audit(c, "time_entry", "create", undefined, "Imported entries", {
     count: entries.length,
   });

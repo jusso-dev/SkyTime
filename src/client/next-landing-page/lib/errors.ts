@@ -88,7 +88,22 @@ export async function captureError(error: unknown, ctx: ErrorContext = {}) {
   }
 }
 
+const SQLITE_CONFLICTS = [
+  "Project does not belong to this organization",
+  "Approved week is locked",
+  "Invoiced entries are locked",
+  "Approved entries are locked",
+  "Task does not belong to this project",
+  "Stop the running timer before submitting or approving",
+];
+
 export function errorResponse(error: unknown) {
+  if (!(error instanceof HttpError) && error instanceof Error) {
+    const hit = SQLITE_CONFLICTS.find((text) => error.message.includes(text));
+    if (hit) {
+      return NextResponse.json({ error: hit, code: "conflict" }, { status: 409 });
+    }
+  }
   if (error instanceof HttpError) {
     return NextResponse.json(
       { error: error.message, code: error.code },

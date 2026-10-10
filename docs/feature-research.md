@@ -6,7 +6,7 @@ Reviewed official product pages on 9 October 2026:
 - [Harvest](https://www.getharvest.com/features): time and expenses, project budgets, team capacity, reporting, and invoicing.
 - [Clockify](https://clockify.me/features): timer/timesheets, projects and clients, reports and exports, approvals, scheduling, time off, expenses, and invoices.
 
-These are reference workflows, not a claim of exact product parity. SkyTime implements them around its existing multi-tenant Postgres workspace.
+These are reference workflows, not a claim of exact product parity. SkyTime implements them around its multi-tenant SQLite workspace (D1 in production).
 
 | Workflow | SkyTime implementation |
 | --- | --- |

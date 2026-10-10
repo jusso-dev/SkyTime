@@ -1,0 +1,10 @@
+[
+  {
+    "id": "expire-skytime-d1-backups",
+    "enabled": true,
+    "conditions": { "prefix": "skytime/" },
+    "deleteObjectsTransition": {
+      "condition": { "type": "Age", "maxAge": 2592000 }
+    }
+  }
+]
