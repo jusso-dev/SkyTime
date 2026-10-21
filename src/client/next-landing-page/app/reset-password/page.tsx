@@ -14,8 +14,8 @@ export default function ResetPasswordPage() {
 
 function ResetPasswordForm() {
   const params = useSearchParams();
-  const token = params.get("token") ?? "";
-  const linkError = params.get("error");
+  const token = params?.get("token") ?? "";
+  const linkError = params?.get("error");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [pending, setPending] = useState(false);

@@ -247,6 +247,7 @@ export function SkyTimeWorkspace({
   const [clients, setClients] = useState<Client[]>(
     initialWorkspace?.clients ?? [],
   );
+  const [timesheetClientId, setTimesheetClientId] = useState("");
   const [currentPeriod, setCurrentPeriod] = useState<TimesheetPeriod | null>(
     initialWorkspace?.currentPeriod ?? null,
   );
@@ -837,14 +838,21 @@ export function SkyTimeWorkspace({
   );
   const filteredEntries = useMemo(
     () =>
-      entries.filter((entry) =>
-        isInsideRange(
-          new Date(entry.startedAt),
-          periodRange.start,
-          periodRange.end,
-        ),
+      entries.filter(
+        (entry) =>
+          isInsideRange(
+            new Date(entry.startedAt),
+            periodRange.start,
+            periodRange.end,
+          ) &&
+          (!timesheetClientId ||
+            projects.some(
+              (project) =>
+                project.id === entry.projectId &&
+                project.clientId === timesheetClientId,
+            )),
       ),
-    [entries, periodRange],
+    [entries, periodRange, projects, timesheetClientId],
   );
   const totals = useMemo(
     () => getTotals(filteredEntries, projects),
@@ -1824,6 +1832,9 @@ export function SkyTimeWorkspace({
 
           {activeView === "timesheets" && (
             <TimesheetsView
+              clients={clients}
+              clientId={timesheetClientId}
+              setClientId={setTimesheetClientId}
               customEnd={customEnd}
               customStart={customStart}
               entries={filteredEntries}
@@ -1837,17 +1848,10 @@ export function SkyTimeWorkspace({
               totals={totals}
               deleteEntry={deleteEntry}
               onCsv={() =>
-                exportCsv(filteredEntries, projects, periodRange, showToast)
+                exportReport("csv", periodRange, timesheetClientId, showToast)
               }
               onPdf={() =>
-                exportPdf(
-                  filteredEntries,
-                  projects,
-                  periodRange,
-                  authState.data.user,
-                  authState.data.organization,
-                  showToast,
-                )
+                exportReport("pdf", periodRange, timesheetClientId, showToast)
               }
             />
           )}
@@ -3213,6 +3217,9 @@ function BoardCard({
 }
 
 function TimesheetsView({
+  clients,
+  clientId,
+  setClientId,
   customEnd,
   customStart,
   entries,
@@ -3228,6 +3235,9 @@ function TimesheetsView({
   onCsv,
   onPdf,
 }: {
+  clients: Client[];
+  clientId: string;
+  setClientId: (value: string) => void;
   customEnd: string;
   customStart: string;
   entries: TimeEntry[];
@@ -3281,6 +3291,20 @@ function TimesheetsView({
                 PDF
               </Button>
             </div>
+          </div>
+
+          <div className="mt-4 sm:max-w-xs">
+            <Field label="Client">
+              <Select aria-label="Client" value={clientId} onChange={setClientId}>
+                <option value="">All clients</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                    {client.archivedAt ? " (archived)" : ""}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -4398,10 +4422,12 @@ function AddressInput({
 }
 
 function Select({
+  "aria-label": ariaLabel,
   children,
   onChange,
   value,
 }: {
+  "aria-label"?: string;
   children: React.ReactNode;
   onChange: (value: string) => void;
   value: string;
@@ -4409,6 +4435,7 @@ function Select({
   return (
     <span className="relative block">
       <select
+        aria-label={ariaLabel}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="h-11 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--raised)] px-3 pr-9 text-base outline-none transition-colors hover:border-[color-mix(in_oklch,var(--sky)_58%,var(--border))] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent-subtle)] sm:text-sm"
@@ -4726,65 +4753,35 @@ function getPendingInviteId() {
   return new URLSearchParams(window.location.search).get("invite") ?? "";
 }
 
-async function exportCsv(
-  entries: TimeEntry[],
-  projects: Project[],
+async function exportReport(
+  format: "csv" | "pdf",
   range: { start: Date; end: Date },
+  clientId: string,
   showToast: (message: string, tone?: "success" | "error") => void,
 ) {
   try {
     const params = new URLSearchParams({
       from: toDateInput(range.start),
       to: toDateInput(range.end),
-      format: "csv",
+      format,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
+    if (clientId) params.set("clientId", clientId);
     const response = await fetch(`/api/v1/reports/export?${params}`);
     if (!response.ok)
       throw new Error((await response.json()).error || "Export failed");
     const url = URL.createObjectURL(await response.blob());
     const link = document.createElement("a");
     link.href = url;
-    link.download = `skytime-${toDateInput(range.start)}-${toDateInput(range.end)}.csv`;
+    link.download = `skytime-${toDateInput(range.start)}-${toDateInput(range.end)}.${format}`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast("CSV exported", "success");
+    showToast(`${format.toUpperCase()} exported`, "success");
   } catch (error) {
     showToast(
-      error instanceof Error ? error.message : "CSV export failed",
-      "error",
-    );
-  }
-}
-
-async function exportPdf(
-  entries: TimeEntry[],
-  projects: Project[],
-  range: { start: Date; end: Date },
-  user: WorkspacePayload["user"],
-  organization: WorkspacePayload["organization"],
-  showToast: (message: string, tone?: "success" | "error") => void,
-) {
-  try {
-    const params = new URLSearchParams({
-      from: toDateInput(range.start),
-      to: toDateInput(range.end),
-      format: "pdf",
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    });
-    const response = await fetch(`/api/v1/reports/export?${params}`);
-    if (!response.ok)
-      throw new Error((await response.json()).error || "Export failed");
-    const url = URL.createObjectURL(await response.blob());
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `skytime-${toDateInput(range.start)}-${toDateInput(range.end)}.pdf`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast("PDF exported", "success");
-  } catch (error) {
-    showToast(
-      error instanceof Error ? error.message : "PDF export failed",
+      error instanceof Error
+        ? error.message
+        : `${format.toUpperCase()} export failed`,
       "error",
     );
   }

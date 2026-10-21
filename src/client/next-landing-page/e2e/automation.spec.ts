@@ -1213,6 +1213,154 @@ for (const timezoneId of ["Australia/Sydney", "America/Los_Angeles"]) {
   });
 }
 
+test("timesheet client filter scopes rows, totals and both exports; PDFs retain daily clock times", async ({
+  browser,
+}, testInfo) => {
+  const selectedClient = await json(
+    await admin.post("/api/v1/clients", {
+      data: { name: "Timesheet client" },
+    }),
+  );
+  const selectedProject = await json(
+    await admin.post("/api/v1/projects", {
+      data: {
+        name: "Filtered client project",
+        clientId: selectedClient.id,
+        rate: 100,
+      },
+    }),
+  );
+  const excludedProject = await json(
+    await admin.post("/api/v1/projects", {
+      data: { name: "Excluded client project", rate: 100 },
+    }),
+  );
+  await json(
+    await admin.post("/api/v1/time-entries/import", {
+      data: {
+        entries: [
+          entry({
+            projectId: selectedProject.id,
+            task: "Morning client work",
+            startedAt: "2026-10-09T09:15:00+11:00",
+          }),
+          entry({
+            projectId: selectedProject.id,
+            task: "Overnight client work",
+            startedAt: "2026-10-09T23:30:00+11:00",
+            durationMs: 7200000,
+          }),
+          entry({
+            projectId: excludedProject.id,
+            task: "Other client work",
+            startedAt: "2026-10-09T12:00:00+11:00",
+            durationMs: 14400000,
+          }),
+        ],
+      },
+    }),
+  );
+  // Archived clients still need exports for their historical work.
+  await json(await admin.delete(`/api/v1/clients/${selectedClient.id}`));
+  const context = await browser.newContext({
+    storageState: await admin.storageState(),
+    timezoneId: "Australia/Sydney",
+  });
+  const page = await context.newPage();
+  page.setDefaultTimeout(10000);
+  await page.goto(baseURL);
+  await page.getByRole("button", { name: "Timesheets", exact: true }).click();
+  await page.getByRole("button", { name: "Custom", exact: true }).click();
+  await page.getByLabel("Start", { exact: true }).fill("2026-10-09");
+  await page.getByLabel("End", { exact: true }).fill("2026-10-09");
+  await expect(
+    page.locator("table").getByText("Other client work", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Client", { exact: true })
+    .selectOption(selectedClient.id);
+  await expect(
+    page.locator("table").getByText("Morning client work", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator("table").getByText("Overnight client work", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator("table").getByText("Other client work", { exact: true }),
+  ).toHaveCount(0);
+  const periodTotal = page
+    .locator("section")
+    .filter({ has: page.getByText("Period total", { exact: true }) });
+  await expect(periodTotal.getByText("3:00", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Excluded client project", { exact: true }),
+  ).toHaveCount(0);
+  for (const format of ["csv", "pdf"]) {
+    const downloadPromise = page.waitForEvent("download");
+    const responsePromise = page.waitForResponse((r) =>
+      r.url().includes("/api/v1/reports/export?"),
+    );
+    await page
+      .getByRole("button", { name: format.toUpperCase(), exact: true })
+      .click();
+    const response = await responsePromise;
+    expect(response.ok()).toBeTruthy();
+    expect(new URL(response.url()).searchParams.get("clientId")).toBe(
+      selectedClient.id,
+    );
+    const download = await downloadPromise;
+    const bytes = await fs.readFile((await download.path())!);
+    let text = bytes.toString("utf8");
+    if (format === "pdf") {
+      await fs.writeFile(testInfo.outputPath("client-timesheet.pdf"), bytes);
+      const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const task = getDocument({
+        data: new Uint8Array(bytes),
+        useSystemFonts: true,
+      });
+      const pdf = await task.promise;
+      const pages = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const content = await (await pdf.getPage(i)).getTextContent();
+        pages.push(
+          content.items
+            .map((item) => ("str" in item ? item.str : ""))
+            .join(" "),
+        );
+      }
+      text = pages.join(" ");
+      await task.destroy();
+      expect(text).toContain("09:15 - 10:15");
+      expect(text).toContain("23:30 - 2026-10-10 01:30");
+      expect(text).toContain("1.00 h recorded");
+      expect(text).toContain("2.00 h recorded");
+      expect(text.indexOf("Morning client work")).toBeLessThan(
+        text.indexOf("Overnight client work"),
+      );
+    }
+    expect(text).toContain("Morning client work");
+    expect(text).toContain("Overnight client work");
+    expect(text).not.toContain("Other client work");
+  }
+  await page.getByLabel("Client", { exact: true }).selectOption("");
+  await expect(
+    page.locator("table").getByText("Other client work", { exact: true }),
+  ).toBeVisible();
+  const allResponse = page.waitForResponse((r) =>
+    r.url().includes("/api/v1/reports/export?"),
+  );
+  const allDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "CSV", exact: true }).click();
+  const response = await allResponse;
+  expect(new URL(response.url()).searchParams.has("clientId")).toBe(false);
+  expect(response.ok()).toBeTruthy();
+  const download = await allDownload;
+  expect(await fs.readFile((await download.path())!, "utf8")).toContain(
+    "Other client work",
+  );
+  await context.close();
+});
+
 test("legacy timer recovery preserves browser data on conflict/failure and survives reload", async ({
   browser,
 }) => {

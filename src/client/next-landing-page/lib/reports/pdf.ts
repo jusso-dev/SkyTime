@@ -2,6 +2,7 @@ import PDFDocument from "./pdf-document";
 import SVGtoPDF from "svg-to-pdfkit";
 import type { Report, Branding } from "./data";
 import { skytimeLogoSvg } from "./logo-svg";
+import { localDate } from "@/lib/zoned-day";
 const hours = (ms: number) => (ms / 3600000).toFixed(2) + " h";
 const money = (n: number, c: string) =>
   `${c} ${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -187,10 +188,20 @@ export async function reportPdf(report: Report): Promise<Buffer> {
     page("Detailed time log");
     label("Detailed time log");
     paragraph(
-      "Hours, rates, and amounts use the selected rounding. Rates are captured when time is recorded.",
+      `Clock times use ${report.filters.timezone}; end times use exact recorded durations. Hours, rates, and amounts use the selected rounding. Rates are captured when time is recorded.`,
       9,
     );
+    const clock = new Intl.DateTimeFormat("en-AU", {
+      timeZone: report.filters.timezone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
     for (const e of report.entries) {
+      const start = new Date(e.startedAt);
+      const end = new Date(start.getTime() + e.durationMs);
+      const endDate = localDate(end, report.filters.timezone);
+      const timeRange = `${clock.format(start)} - ${endDate === e.date ? "" : endDate + " "}${clock.format(end)}`;
       const desc = [
         e.task,
         e.notes,
@@ -210,7 +221,7 @@ export async function reportPdf(report: Report): Promise<Buffer> {
           block = word;
         } else block = next;
       }
-      if (block) blocks.push(block);
+      if (block || !blocks.length) blocks.push(block);
       for (let i = 0; i < blocks.length; i++) {
         const text = blocks[i];
         doc.font("Helvetica").fontSize(9);
@@ -220,7 +231,7 @@ export async function reportPdf(report: Report): Promise<Buffer> {
         const headingHeight = doc.heightOfString(heading, {
           width: width - 24,
         });
-        const rowHeight = textHeight + headingHeight + 81;
+        const rowHeight = textHeight + headingHeight + 99;
         ensure(rowHeight);
         doc.roundedRect(42, y, width, rowHeight - 10, 5).fill("#f8fafc");
         doc
@@ -230,18 +241,27 @@ export async function reportPdf(report: Report): Promise<Buffer> {
           .text(heading, 54, y + 12, { width: width - 24 });
         doc
           .font("Helvetica")
-          .fontSize(8)
-          .fillColor("#64748b")
+          .fontSize(9)
+          .fillColor("#334155")
           .text(
-            `${e.date}  |  ${e.member}  |  ${e.billable ? "Billable" : "Non-billable"}${e.invoiced ? "  |  Invoiced" : ""}${i ? "  |  Continued" : ""}`,
+            `${e.date}  |  ${timeRange}  |  ${hours(e.durationMs)} recorded`,
             54,
             y + headingHeight + 19,
             { width: width - 24 },
           );
         doc
+          .fontSize(8)
+          .fillColor("#64748b")
+          .text(
+            `${e.member}  |  ${e.billable ? "Billable" : "Non-billable"}${e.invoiced ? "  |  Invoiced" : ""}${i ? "  |  Continued" : ""}`,
+            54,
+            y + headingHeight + 37,
+            { width: width - 24 },
+          );
+        doc
           .fontSize(9)
           .fillColor("#334155")
-          .text(text, 54, y + headingHeight + 37, { width: width - 24 });
+          .text(text, 54, y + headingHeight + 55, { width: width - 24 });
         if (i === 0)
           doc
             .font("Helvetica-Bold")
@@ -250,7 +270,7 @@ export async function reportPdf(report: Report): Promise<Buffer> {
             .text(
               `${hours(e.roundedMs)}  ×  ${money(e.rate, e.currency)} / h  =  ${money(e.amount, e.currency)}`,
               54,
-              y + headingHeight + textHeight + 49,
+              y + headingHeight + textHeight + 67,
               { width: width - 24 },
             );
         y += rowHeight;
