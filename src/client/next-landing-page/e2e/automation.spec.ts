@@ -1267,6 +1267,7 @@ test("timesheet client filter scopes rows, totals and both exports; PDFs retain 
     timezoneId: "Australia/Sydney",
   });
   const page = await context.newPage();
+  page.setDefaultTimeout(10000);
   await page.goto(baseURL);
   await page.getByRole("button", { name: "Timesheets", exact: true }).click();
   await page.getByRole("button", { name: "Custom", exact: true }).click();
@@ -1352,8 +1353,11 @@ test("timesheet client filter scopes rows, totals and both exports; PDFs retain 
   await page.getByRole("button", { name: "CSV", exact: true }).click();
   const response = await allResponse;
   expect(new URL(response.url()).searchParams.has("clientId")).toBe(false);
-  expect(await response.text()).toContain("Other client work");
-  await allDownload;
+  expect(response.ok()).toBeTruthy();
+  const download = await allDownload;
+  expect(await fs.readFile((await download.path())!, "utf8")).toContain(
+    "Other client work",
+  );
   await context.close();
 });
 

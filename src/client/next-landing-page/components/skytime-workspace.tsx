@@ -3295,7 +3295,7 @@ function TimesheetsView({
 
           <div className="mt-4 sm:max-w-xs">
             <Field label="Client">
-              <Select value={clientId} onChange={setClientId}>
+              <Select aria-label="Client" value={clientId} onChange={setClientId}>
                 <option value="">All clients</option>
                 {clients.map((client) => (
                   <option key={client.id} value={client.id}>
@@ -4422,10 +4422,12 @@ function AddressInput({
 }
 
 function Select({
+  "aria-label": ariaLabel,
   children,
   onChange,
   value,
 }: {
+  "aria-label"?: string;
   children: React.ReactNode;
   onChange: (value: string) => void;
   value: string;
@@ -4433,6 +4435,7 @@ function Select({
   return (
     <span className="relative block">
       <select
+        aria-label={ariaLabel}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="h-11 w-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--raised)] px-3 pr-9 text-base outline-none transition-colors hover:border-[color-mix(in_oklch,var(--sky)_58%,var(--border))] focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent-subtle)] sm:text-sm"
