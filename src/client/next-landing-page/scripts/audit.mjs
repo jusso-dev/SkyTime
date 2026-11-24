@@ -3,17 +3,8 @@
 // accepted and be removed as soon as a patched release exists.
 import { execFileSync } from "node:child_process";
 
-const ACCEPTED = new Map([
-  [
-    // braces <= 3.0.3 stack-exhaustion DoS on deeply nested patterns. No
-    // patched release exists. It is reached only at build time
-    // (vinext > vite-plugin-commonjs > vite-plugin-dynamic-import > fast-glob
-    // > micromatch) to expand glob patterns written in our own source, never
-    // with request input. See jusso-dev/SkyTime#2.
-    "GHSA-vfj7-8cjw-p6xm",
-    "no patched braces release; build-time only, no untrusted input",
-  ],
-]);
+// Add [ghsaId, reason] entries here only while no patched release exists.
+const ACCEPTED = new Map([]);
 const BLOCKING = new Set(["high", "critical"]);
 
 let raw;
