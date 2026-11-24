@@ -44,7 +44,7 @@ jobs:
         run: npm ci
 
       # Fails on high/critical advisories; documented exceptions live in
-      # scripts/audit.mjs (currently only the unpatched braces advisory, #2).
+      # scripts/audit.mjs (currently none).
       - name: Audit dependencies
         run: node scripts/audit.mjs
 
